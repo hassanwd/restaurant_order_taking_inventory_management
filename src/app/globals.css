@@ -1,26 +1,267 @@
 @import "tailwindcss";
 
+/* Dark mode is driven by a `data-theme` attribute on <html> (set before paint
+   by the inline script in the root layout) instead of the OS preference. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ---------------------------------------------------------------------------
+   Global colour theme — light orange + dark + white.
+   Every colour in the app comes from these tokens; nothing hardcodes a hex.
+--------------------------------------------------------------------------- */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Brand ramp — light orange */
+  --brand-50: #fff6ee;
+  --brand-100: #ffe9d5;
+  --brand-200: #ffd2aa;
+  --brand-300: #ffb375;
+  --brand-400: #ff9448;
+  --brand-500: #ff7a1a;
+  --brand-600: #ed6207;
+  --brand-700: #c44b06;
+  --brand-800: #9c3c0d;
+  --brand-900: #7e330e;
+
+  /* Neutral ramp — warm dark */
+  --ink-50: #faf7f5;
+  --ink-100: #f2ece7;
+  --ink-200: #e6dcd3;
+  --ink-300: #d2c2b5;
+  --ink-400: #a99787;
+  --ink-500: #877567;
+  --ink-600: #6b5b4f;
+  --ink-700: #4a3f37;
+  --ink-800: #2b2421;
+  --ink-900: #1a1513;
+
+  /* Semantic surfaces (light) */
+  --bg: #f7f4f1;
+  --surface: #ffffff;
+  --surface-2: #fffaf5;
+  --surface-3: #fff2e6;
+  --line: #ece3da;
+  --line-strong: #ddd0c4;
+  --fg: #1a1513;
+  --fg-muted: #7b6a5e;
+  --fg-subtle: #a2938a;
+
+  --accent: var(--brand-500);
+  --accent-hover: var(--brand-600);
+  --accent-soft: var(--brand-50);
+  --accent-fg: #ffffff;
+
+  /* Sidebar's active nav item — a fixed brand mark, same in both themes. */
+  --sidebar-active: #e26311;
+  --sidebar-active-fg: #ffffff;
+
+  --success: #16a34a;
+  --success-soft: #e8f7ee;
+  --warning: #d97706;
+  --warning-soft: #fdf3e3;
+  --danger: #dc2626;
+  --danger-soft: #fdeceb;
+  --info: #2563eb;
+  --info-soft: #e9f0fe;
+
+  --ring: color-mix(in oklab, var(--brand-500) 45%, transparent);
+  --shadow-sm: 0 1px 2px rgb(26 21 19 / 0.06);
+  --shadow-md: 0 6px 20px -8px rgb(26 21 19 / 0.18);
+  --shadow-lg: 0 18px 46px -18px rgb(26 21 19 / 0.32);
 }
 
+[data-theme="dark"] {
+  --bg: #141110;
+  --surface: #1d1917;
+  --surface-2: #26211e;
+  --surface-3: #322a25;
+  --line: #332c28;
+  --line-strong: #453b35;
+  --fg: #f6f1ec;
+  --fg-muted: #a89a90;
+  --fg-subtle: #7d7069;
+
+  --accent: var(--brand-400);
+  --accent-hover: var(--brand-300);
+  --accent-soft: #33210f;
+  --accent-fg: #1a1513;
+
+  --success: #4ade80;
+  --success-soft: #16281d;
+  --warning: #fbbf24;
+  --warning-soft: #2e2211;
+  --danger: #f87171;
+  --danger-soft: #331a19;
+  --info: #93b4fd;
+  --info-soft: #17213a;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 6px 20px -8px rgb(0 0 0 / 0.6);
+  --shadow-lg: 0 18px 46px -18px rgb(0 0 0 / 0.75);
+}
+
+/* Expose the tokens as Tailwind utilities (bg-surface, text-fg-muted, ...) */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-brand-50: var(--brand-50);
+  --color-brand-100: var(--brand-100);
+  --color-brand-200: var(--brand-200);
+  --color-brand-300: var(--brand-300);
+  --color-brand-400: var(--brand-400);
+  --color-brand-500: var(--brand-500);
+  --color-brand-600: var(--brand-600);
+  --color-brand-700: var(--brand-700);
+  --color-brand-800: var(--brand-800);
+  --color-brand-900: var(--brand-900);
+
+  --color-ink-50: var(--ink-50);
+  --color-ink-100: var(--ink-100);
+  --color-ink-200: var(--ink-200);
+  --color-ink-300: var(--ink-300);
+  --color-ink-400: var(--ink-400);
+  --color-ink-500: var(--ink-500);
+  --color-ink-600: var(--ink-600);
+  --color-ink-700: var(--ink-700);
+  --color-ink-800: var(--ink-800);
+  --color-ink-900: var(--ink-900);
+
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-fg);
+
+  --color-sidebar-active: var(--sidebar-active);
+  --color-sidebar-active-fg: var(--sidebar-active-fg);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --shadow-card: var(--shadow-sm);
+  --shadow-pop: var(--shadow-md);
+  --shadow-float: var(--shadow-lg);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  border-color: var(--line);
+}
+
+html {
+  color-scheme: light;
+}
+[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  /* Buttons handle their own press feedback — no ugly mobile tap flash. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Slim scrollbars that follow the theme */
+.scroll-slim {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+.scroll-slim::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-slim::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 999px;
+}
+.scroll-slim::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-pop-in {
+  animation: pop-in 0.16s ease-out both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-fade-in {
+  animation: fade-in 0.15s ease-out both;
+}
+
+/* ---------------------------------------------------------------------------
+   Print — 80mm thermal receipt / kitchen ticket
+--------------------------------------------------------------------------- */
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 4mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-sheet {
+    width: auto !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .print-sheet * {
+    color: #000 !important;
+    border-color: #000 !important;
+  }
+
+  .print-break {
+    break-after: page;
+  }
 }
