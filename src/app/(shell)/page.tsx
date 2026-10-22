@@ -1,12 +1,15 @@
 import Link from "next/link";
-import { Armchair, ChevronRight, ReceiptText, TrendingUp, Wallet } from "lucide-react";
+import { Armchair, ChevronRight, ReceiptText, ShieldAlert, TrendingUp, Undo2, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ButtonLink } from "@/components/ui/Button";
 import { Card, SectionTitle, StatusBadge } from "@/components/ui/primitives";
 import { OUTLET } from "@/data/settings";
 import { currency, formatTime, ORDER_TYPE_LABEL } from "@/lib/format";
 import { ORDER_TYPE_ICONS } from "@/lib/icons";
+import { can } from "@/lib/permissions";
 import { getDashboardStats, getOrders, getTables } from "@/server/data";
+import { redirect } from "next/navigation";
+import { requireUser } from "@/server/session";
 
 export const metadata = { title: "Dashboard" };
 
@@ -45,27 +48,41 @@ function Stat({
   );
 }
 
-export default async function DashboardPage() {
-  // Three server-side reads, resolved before a single byte reaches the browser.
-  const [stats, orders, tables] = await Promise.all([
-    getDashboardStats(),
-    getOrders(),
+export default async function DashboardPage({ searchParams }: PageProps<"/">) {
+  const user = await requireUser();
+  // Workers have no dashboard — their home is the order screen.
+  if (!can(user.role, "dashboard.view")) redirect("/order/new");
+  const [params, stats, orders, tables] = await Promise.all([
+    searchParams,
+    getDashboardStats(user),
+    getOrders(user),
     getTables(),
   ]);
+
+  // Sales figures are for cashiers and above; workers see their own order counts only.
+  const seesSales = can(user.role, "billing.view");
+  const seesAll = can(user.role, "order.view.all");
 
   const recent = orders.slice(0, 6);
   const freeTables = tables.filter((table) => table.status === "free").length;
   const DineInIcon = ORDER_TYPE_ICONS["dine-in"];
   const TakeawayIcon = ORDER_TYPE_ICONS.takeaway;
-  const DeliveryIcon = ORDER_TYPE_ICONS.delivery;
+  const ParcelIcon = ORDER_TYPE_ICONS.parcel;
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
+      {params.denied ? (
+        <p className="flex items-center gap-2 rounded-xl border border-warning/40 bg-warning-soft px-4 py-3 text-sm font-semibold text-warning">
+          <ShieldAlert className="size-4 shrink-0" aria-hidden />
+          Your role does not have access to that page.
+        </p>
+      ) : null}
+
       <section className="overflow-hidden rounded-2xl border border-line bg-linear-to-br from-brand-500 to-brand-700 p-6 text-white shadow-pop">
         <div className="flex flex-wrap items-end justify-between gap-6">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/75">
-              {OUTLET.branch} · {OUTLET.register}
+              {OUTLET.branch} · {OUTLET.register} · {user.name}
             </p>
             <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
               Good service starts with a fast order.
@@ -84,35 +101,47 @@ export default async function DashboardPage() {
               <TakeawayIcon className="size-4" aria-hidden />
               Takeaway
             </ButtonLink>
-            <ButtonLink href="/order/new?type=delivery" variant="light" size="lg">
-              <DeliveryIcon className="size-4" aria-hidden />
-              Delivery
+            <ButtonLink href="/order/new?type=parcel" variant="light" size="lg">
+              <ParcelIcon className="size-4" aria-hidden />
+              Parcel
             </ButtonLink>
           </div>
         </div>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[repeat(auto-fit,minmax(200px,1fr))]">
         <Stat
           label="Orders today"
           value={String(stats.ordersToday)}
-          sub={`${stats.openOrders} still open`}
+          sub={`${stats.openOrders} still open${seesAll ? "" : " · yours"}`}
           icon={ReceiptText}
           tone="accent"
         />
-        <Stat
-          label="Revenue"
-          value={currency(stats.revenueToday)}
-          sub="Excludes cancelled orders"
-          icon={Wallet}
-          tone="dark"
-        />
-        <Stat
-          label="Average ticket"
-          value={currency(stats.averageTicket)}
-          sub="Per completed order"
-          icon={TrendingUp}
-        />
+        {seesSales ? (
+          <Stat
+            label="Revenue"
+            value={currency(stats.revenueToday)}
+            sub="Excludes cancelled and returned"
+            icon={Wallet}
+            tone="dark"
+          />
+        ) : null}
+        {seesSales ? (
+          <Stat
+            label="Average ticket"
+            value={currency(stats.averageTicket)}
+            sub="Per billable order"
+            icon={TrendingUp}
+          />
+        ) : null}
+        {seesAll ? (
+          <Stat
+            label="Returned today"
+            value={String(stats.returnedToday)}
+            sub="Refunded orders"
+            icon={Undo2}
+          />
+        ) : null}
         <Stat
           label="Tables occupied"
           value={`${stats.tablesOccupied}/${stats.tablesTotal}`}
@@ -126,7 +155,7 @@ export default async function DashboardPage() {
           <div className="border-b border-line px-5 py-4">
             <SectionTitle
               title="Recent orders"
-              subtitle="Loaded on the server with the rest of the page"
+              subtitle={seesAll ? "Across all employees" : "Orders you have taken"}
               action={
                 <Link
                   href="/orders"
@@ -192,9 +221,11 @@ export default async function DashboardPage() {
                     <p className="truncate text-sm font-semibold text-fg">{item.name}</p>
                     <p className="text-[11px] text-fg-muted">{item.quantity} sold</p>
                   </div>
-                  <span className="text-sm font-bold tabular-nums text-fg">
-                    {currency(item.revenue)}
-                  </span>
+                  {seesSales ? (
+                    <span className="text-sm font-bold tabular-nums text-fg">
+                      {currency(item.revenue)}
+                    </span>
+                  ) : null}
                 </li>
               ))}
             </ul>

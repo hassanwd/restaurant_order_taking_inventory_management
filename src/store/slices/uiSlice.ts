@@ -3,23 +3,30 @@ import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 export type ThemeMode = "light" | "dark";
 
 export interface UiState {
+  /** Mobile drawer. */
   sidebarOpen: boolean;
+  /** Desktop: the sidebar is folded away to give the page the full width. */
+  sidebarCollapsed: boolean;
   theme: ThemeMode;
   activeCategory: string;
   menuSearch: string;
   /** Item id whose option sheet is open, or null. */
   configuringItemId: string | null;
   cartDrawerOpen: boolean;
+  /** Bumped when the sidebar's Orders / Monitor link is clicked on that very screen, to reset its filters. */
+  ordersViewResets: number;
   toast: { id: number; message: string; tone: "success" | "info" | "danger" } | null;
 }
 
 export const initialUiState: UiState = {
   sidebarOpen: false,
+  sidebarCollapsed: false,
   theme: "light",
   activeCategory: "all",
   menuSearch: "",
   configuringItemId: null,
   cartDrawerOpen: false,
+  ordersViewResets: 0,
   toast: null,
 };
 
@@ -31,6 +38,9 @@ const uiSlice = createSlice({
   reducers: {
     toggleSidebar(state) {
       state.sidebarOpen = !state.sidebarOpen;
+    },
+    setSidebarCollapsed(state, action: PayloadAction<boolean>) {
+      state.sidebarCollapsed = action.payload;
     },
     setSidebarOpen(state, action: PayloadAction<boolean>) {
       state.sidebarOpen = action.payload;
@@ -52,6 +62,9 @@ const uiSlice = createSlice({
     },
     closeItemConfigurator(state) {
       state.configuringItemId = null;
+    },
+    resetOrdersView(state) {
+      state.ordersViewResets += 1;
     },
     setCartDrawerOpen(state, action: PayloadAction<boolean>) {
       state.cartDrawerOpen = action.payload;
@@ -76,6 +89,7 @@ const uiSlice = createSlice({
 export const {
   toggleSidebar,
   setSidebarOpen,
+  setSidebarCollapsed,
   setTheme,
   toggleTheme,
   setActiveCategory,
@@ -83,6 +97,7 @@ export const {
   openItemConfigurator,
   closeItemConfigurator,
   setCartDrawerOpen,
+  resetOrdersView,
   showToast,
   dismissToast,
 } = uiSlice.actions;

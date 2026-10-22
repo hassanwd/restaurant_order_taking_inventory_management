@@ -1,11 +1,11 @@
 import { combineReducers, configureStore } from "@reduxjs/toolkit";
 import cartReducer from "./slices/cartSlice";
-import ordersReducer from "./slices/ordersSlice";
+import configReducer from "./slices/configSlice";
 import uiReducer from "./slices/uiSlice";
 
 const rootReducer = combineReducers({
   cart: cartReducer,
-  orders: ordersReducer,
+  config: configReducer,
   ui: uiReducer,
 });
 

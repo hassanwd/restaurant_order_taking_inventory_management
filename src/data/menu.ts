@@ -1,4 +1,4 @@
-import type { Category, MenuItem, OptionGroup } from "@/lib/types";
+import type { Category, DealComponent, MenuItem, OptionGroup } from "@/lib/types";
 
 export const CATEGORIES: Category[] = [
   { id: "all", name: "All Items", icon: "🍱" },
@@ -9,7 +9,12 @@ export const CATEGORIES: Category[] = [
   { id: "pasta", name: "Pasta", icon: "🍝" },
   { id: "desserts", name: "Desserts", icon: "🍰" },
   { id: "drinks", name: "Drinks", icon: "🥤" },
+  { id: "addons", name: "Add-ons", icon: "➕" },
+  { id: "deals", name: "Deals", icon: "🎁" },
 ];
+
+/** Categories an admin can file a new menu item under — "all" and "deals" are views, not shelves. */
+export const ASSIGNABLE_CATEGORIES = CATEGORIES.filter((category) => category.id !== "all" && category.id !== "deals");
 
 const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
@@ -77,7 +82,7 @@ export const MENU_ITEMS: MenuItem[] = [
   {
     id: "itm-103",
     name: "Soup of the Day",
-    description: "Roasted tomato and basil, served with sourdough",
+    description: "Roasted tomato and basil, with sourdough",
     price: 5.75,
     categoryId: "starters",
     icon: "🥣",
@@ -354,6 +359,99 @@ export const MENU_ITEMS: MenuItem[] = [
     tags: [],
     optionGroups: [],
   },
+  {
+    id: "itm-801",
+    name: "Extra Cheese",
+    description: "Melted three-cheese blend, added to any dish",
+    price: 1.5,
+    categoryId: "addons",
+    icon: "🧀",
+    prepMinutes: 1,
+    available: true,
+    tags: ["Add-on"],
+    optionGroups: [],
+  },
+  {
+    id: "itm-802",
+    name: "Garlic Dip",
+    description: "House garlic mayo, 50ml pot",
+    price: 0.9,
+    categoryId: "addons",
+    icon: "🧄",
+    prepMinutes: 1,
+    available: true,
+    tags: ["Add-on", "Vegetarian"],
+    optionGroups: [],
+  },
+  {
+    id: "itm-803",
+    name: "Chilli Sauce",
+    description: "Smoked chilli sauce, 50ml pot",
+    price: 0.9,
+    categoryId: "addons",
+    icon: "🌶️",
+    prepMinutes: 1,
+    available: true,
+    tags: ["Add-on", "Spicy"],
+    optionGroups: [],
+  },
+  {
+    id: "itm-804",
+    name: "Side Salad",
+    description: "Leaves, cucumber, cherry tomato, lemon dressing",
+    price: 3.5,
+    categoryId: "addons",
+    icon: "🥗",
+    prepMinutes: 3,
+    available: true,
+    tags: ["Add-on", "Vegan"],
+    optionGroups: [],
+  },
+  {
+    id: "itm-805",
+    name: "Extra Patty",
+    description: "Additional smashed beef patty",
+    price: 3.2,
+    categoryId: "addons",
+    icon: "🍔",
+    prepMinutes: 4,
+    available: false,
+    tags: ["Add-on"],
+    optionGroups: [],
+  },
 ];
 
-export const findMenuItem = (id: string) => MENU_ITEMS.find((item) => item.id === id);
+
+export interface SeedDeal {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  items: DealComponent[];
+}
+
+export const SEED_DEALS: SeedDeal[] = [
+  {
+    id: "deal-1",
+    name: "Burger Combo",
+    description: "Smash Cheeseburger + Garlic Truffle Fries + Iced Caramel Latte",
+    price: 22.5,
+    items: [
+      { itemId: "itm-401", quantity: 1 },
+      { itemId: "itm-102", quantity: 1 },
+      { itemId: "itm-702", quantity: 1 },
+    ],
+  },
+  {
+    id: "deal-2",
+    name: "Pizza Night for Two",
+    description: "Any two pizzas, Loaded Nachos and two Sparkling Waters",
+    price: 34,
+    items: [
+      { itemId: "itm-301", quantity: 1 },
+      { itemId: "itm-302", quantity: 1 },
+      { itemId: "itm-101", quantity: 1 },
+      { itemId: "itm-703", quantity: 2 },
+    ],
+  },
+];

@@ -3,14 +3,19 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { ShoppingBasket, StickyNote, Trash2 } from "lucide-react";
+import { Pencil, ShoppingBasket, StickyNote, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState, Input, KeyValue, Textarea } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
 import { currency, lineTotal, ORDER_TYPE_LABEL } from "@/lib/format";
-import { PRICING } from "@/data/settings";
+import { can } from "@/lib/permissions";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { selectCartCount, selectCartIssues, selectCartTotals } from "@/store/selectors";
+import {
+  selectCartCount,
+  selectCartIssues,
+  selectCartTotals,
+  selectUser,
+} from "@/store/selectors";
 import {
   clearLines,
   decrementLine,
@@ -18,6 +23,7 @@ import {
   removeLine,
   setDiscountPercent,
   setLineNotes,
+  setLinePrice,
   setOrderNotes,
 } from "@/store/slices/cartSlice";
 import { showToast } from "@/store/slices/uiSlice";
@@ -26,9 +32,14 @@ import QuantityStepper from "./QuantityStepper";
 function CartLineRow({ lineId }: { lineId: string }) {
   const dispatch = useAppDispatch();
   const line = useAppSelector((state) => state.cart.lines.find((entry) => entry.lineId === lineId));
+  const user = useAppSelector(selectUser);
   const [editingNote, setEditingNote] = useState(false);
+  const [editingPrice, setEditingPrice] = useState(false);
 
   if (!line) return null;
+  // Hiding the control is cosmetic — the server rejects price changes from anyone without this permission.
+  const canAdjust = can(user?.role, "price.adjust");
+  const adjusted = line.basePrice !== line.listPrice;
 
   return (
     <li className="rounded-xl border border-line bg-surface-2 p-3">
@@ -44,6 +55,47 @@ function CartLineRow({ lineId }: { lineId: string }) {
               {currency(lineTotal(line))}
             </span>
           </div>
+
+          {adjusted ? (
+            <p className="mt-0.5 text-[11px] font-semibold text-warning">
+              Price adjusted: {currency(line.listPrice)} → {currency(line.basePrice)} each
+            </p>
+          ) : null}
+
+          {editingPrice ? (
+            <label className="mt-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-fg-muted">
+              Unit price
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                inputMode="decimal"
+                autoFocus
+                className="w-24 py-1.5 text-right text-xs normal-case"
+                value={line.basePrice}
+                onChange={(event) =>
+                  dispatch(setLinePrice({ lineId: line.lineId, price: Number(event.target.value) }))
+                }
+                onBlur={() => setEditingPrice(false)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === "Escape") setEditingPrice(false);
+                }}
+              />
+              {adjusted ? (
+                <button
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    dispatch(setLinePrice({ lineId: line.lineId, price: line.listPrice }));
+                    setEditingPrice(false);
+                  }}
+                  className="cursor-pointer text-[11px] font-semibold normal-case text-accent hover:underline"
+                >
+                  Reset
+                </button>
+              ) : null}
+            </label>
+          ) : null}
 
           {line.options.length > 0 ? (
             <p className="mt-0.5 text-[11px] leading-snug text-fg-muted">
@@ -79,6 +131,16 @@ function CartLineRow({ lineId }: { lineId: string }) {
             >
               {line.notes ? "Edit note" : "Add note"}
             </button>
+            {canAdjust ? (
+              <button
+                type="button"
+                onClick={() => setEditingPrice((value) => !value)}
+                className="flex cursor-pointer items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-fg-muted transition-all duration-150 hover:bg-surface-3 hover:text-accent active:scale-95"
+              >
+                <Pencil className="size-3" aria-hidden />
+                Price
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => dispatch(removeLine(line.lineId))}
@@ -116,6 +178,8 @@ export default function CartPanel({ className }: { className?: string }) {
   const totals = useAppSelector(selectCartTotals);
   const count = useAppSelector(selectCartCount);
   const issues = useAppSelector(selectCartIssues);
+  const user = useAppSelector(selectUser);
+  const canDiscount = can(user?.role, "discount.apply");
 
   return (
     <div className={cn("flex h-full min-h-0 flex-col bg-surface", className)}>
@@ -171,6 +235,7 @@ export default function CartPanel({ className }: { className?: string }) {
               />
             </label>
 
+            {canDiscount ? (
             <label className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface-2 px-3 py-2.5">
               <span className="text-[11px] font-bold uppercase tracking-wide text-fg-muted">
                 Discount %
@@ -184,6 +249,7 @@ export default function CartPanel({ className }: { className?: string }) {
                 className="w-20 py-1.5 text-right"
               />
             </label>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -199,16 +265,19 @@ export default function CartPanel({ className }: { className?: string }) {
           ) : null}
           {totals.serviceCharge > 0 ? (
             <KeyValue
-              label={`Service (${PRICING.serviceChargeRate}%)`}
+              label={`Service (${totals.serviceChargeRate}%)`}
               value={currency(totals.serviceCharge)}
             />
           ) : null}
           {totals.deliveryFee > 0 ? (
-            <KeyValue label="Delivery" value={currency(totals.deliveryFee)} />
+            <KeyValue label="Parcel fee" value={currency(totals.deliveryFee)} />
           ) : null}
-          <KeyValue label={`Tax (${PRICING.taxRate}%)`} value={currency(totals.tax)} />
+          <KeyValue label={`GST (${totals.taxRate}%)`} value={currency(totals.tax)} />
           <div className="my-2 border-t border-dashed border-line-strong" />
           <KeyValue label="Total" value={currency(totals.total)} strong />
+          <p className="text-[10px] text-fg-subtle">
+            GST shown at the cash rate — it is finalised when the bill is settled.
+          </p>
         </div>
 
         {issues.length > 0 && cart.lines.length > 0 ? (
@@ -231,7 +300,7 @@ export default function CartPanel({ className }: { className?: string }) {
             router.push("/order/checkout");
           }}
         >
-          Review &amp; Pay · {currency(totals.total)}
+          {cart.orderType === "parcel" ? "Review & Place" : "Review & Pay"} · {currency(totals.total)}
         </Button>
 
         <p className="mt-2 text-center text-[11px] text-fg-subtle">

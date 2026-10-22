@@ -10,11 +10,9 @@ export interface CartState {
   lines: CartLine[];
   notes: string;
   discountPercent: number;
-  /** Set on the checkout screen, folded into the totals. */
-  tip: number;
 }
 
-const emptyCustomer: Customer = { name: "", phone: "", address: "" };
+const emptyCustomer: Customer = { name: "", phone: "", email: "", address: "" };
 
 export const initialCartState: CartState = {
   orderType: "dine-in",
@@ -24,7 +22,6 @@ export const initialCartState: CartState = {
   lines: [],
   notes: "",
   discountPercent: 0,
-  tip: 0,
 };
 
 /** Two lines merge only when they are the same item with the same options and notes. */
@@ -70,9 +67,6 @@ const cartSlice = createSlice({
     setDiscountPercent(state, action: PayloadAction<number>) {
       state.discountPercent = clampPercent(action.payload);
     },
-    setTip(state, action: PayloadAction<number>) {
-      state.tip = Math.max(0, Math.round((action.payload + Number.EPSILON) * 100) / 100);
-    },
     addLine: {
       reducer(state, action: PayloadAction<CartLine>) {
         const incoming = action.payload;
@@ -98,6 +92,7 @@ const cartSlice = createSlice({
           name: item.name,
           icon: item.icon,
           basePrice: item.price,
+          listPrice: item.price,
           quantity,
           options,
           notes,
@@ -124,6 +119,13 @@ const cartSlice = createSlice({
       if (!line) return;
       line.quantity = Math.min(99, Math.max(1, Math.round(action.payload.quantity) || 1));
     },
+    /** Adjusting a price is an admin action; the server rejects it for anyone else. */
+    setLinePrice(state, action: PayloadAction<{ lineId: string; price: number }>) {
+      const line = state.lines.find((entry) => entry.lineId === action.payload.lineId);
+      if (!line) return;
+      const price = Math.round((action.payload.price + Number.EPSILON) * 100) / 100;
+      line.basePrice = Number.isFinite(price) ? Math.min(100000, Math.max(0, price)) : line.listPrice;
+    },
     setLineNotes(state, action: PayloadAction<{ lineId: string; notes: string }>) {
       const line = state.lines.find((entry) => entry.lineId === action.payload.lineId);
       if (line) line.notes = action.payload.notes;
@@ -135,18 +137,13 @@ const cartSlice = createSlice({
       state.lines = [];
       state.discountPercent = 0;
       state.notes = "";
-      state.tip = 0;
     },
     resetCart() {
       return { ...initialCartState, customer: { ...emptyCustomer } };
     },
     /** Restores a cart saved to localStorage by <StatePersistence />. */
     hydrateCart(state, action: PayloadAction<Partial<CartState>>) {
-      return { ...state, ...action.payload };
-    },
-    /** Loads an existing order back into the cart so it can be edited. */
-    loadOrderIntoCart(state, action: PayloadAction<CartState>) {
-      return action.payload;
+      return { ...state, ...action.payload, customer: { ...state.customer, ...action.payload.customer } };
     },
   },
 });
@@ -158,17 +155,16 @@ export const {
   setCustomerField,
   setOrderNotes,
   setDiscountPercent,
-  setTip,
   addLine,
   incrementLine,
   decrementLine,
   setLineQuantity,
+  setLinePrice,
   setLineNotes,
   removeLine,
   clearLines,
   resetCart,
   hydrateCart,
-  loadOrderIntoCart,
 } = cartSlice.actions;
 
 export default cartSlice.reducer;

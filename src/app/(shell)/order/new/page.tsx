@@ -1,10 +1,11 @@
 import OrderTakingScreen from "@/components/order/OrderTakingScreen";
 import type { OrderType } from "@/lib/types";
-import { getCategories, getMenuItems, getTables } from "@/server/data";
+import { getCategories, getCatalog, getTables } from "@/server/data";
+import { requirePermission } from "@/server/session";
 
 export const metadata = { title: "New Order" };
 
-const ORDER_TYPES: OrderType[] = ["dine-in", "takeaway", "delivery"];
+const ORDER_TYPES: OrderType[] = ["dine-in", "takeaway", "parcel"];
 
 const asOrderType = (value: string | string[] | undefined): OrderType | undefined =>
   typeof value === "string" && ORDER_TYPES.includes(value as OrderType)
@@ -12,10 +13,12 @@ const asOrderType = (value: string | string[] | undefined): OrderType | undefine
     : undefined;
 
 export default async function NewOrderPage({ searchParams }: PageProps<"/order/new">) {
-  // Menu, categories and the floor plan are fetched and rendered on the server.
+  await requirePermission("order.create");
+
+  // Menu (items, drinks, add-ons, deals), categories and the floor plan are fetched and rendered on the server.
   const [categories, items, tables, params] = await Promise.all([
     getCategories(),
-    getMenuItems(),
+    getCatalog(),
     getTables(),
     searchParams,
   ]);

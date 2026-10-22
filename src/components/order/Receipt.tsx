@@ -1,4 +1,4 @@
-import { OUTLET, PRICING } from "@/data/settings";
+import { OUTLET } from "@/data/settings";
 import { currency, formatDateTime, lineTotal, lineUnitPrice, ORDER_TYPE_LABEL, PAYMENT_LABEL } from "@/lib/format";
 import type { DiningTable, Order } from "@/lib/types";
 
@@ -60,15 +60,16 @@ export default function Receipt({ order, table }: { order: Order; table?: Dining
       <div className="space-y-0.5">
         <Row label="Order" value={order.code} bold />
         <Row label="Type" value={ORDER_TYPE_LABEL[order.type].toUpperCase()} />
-        {table ? <Row label="Table" value={`${table.name} · ${order.guests} guests`} /> : null}
+        {table ? <Row label="Table" value={table.name} /> : null}
         <Row label="Date" value={`${formatDateTime(order.createdAt)} UTC`} />
-        <Row label="Cashier" value={`${order.cashier} · ${OUTLET.register}`} />
+        <Row label="Taken by" value={`${order.cashier} · ${OUTLET.register}`} />
         <Row label="Guest" value={order.customer.name || "Walk-in Guest"} />
         {order.customer.phone ? <Row label="Phone" value={order.customer.phone} /> : null}
+        {order.customer.email ? <Row label="Email" value={order.customer.email} /> : null}
       </div>
 
       {order.customer.address ? (
-        <p className="mt-1 text-[10px] leading-snug">Deliver to: {order.customer.address}</p>
+        <p className="mt-1 text-[10px] leading-snug">Location: {order.customer.address}</p>
       ) : null}
 
       <Divider />
@@ -119,14 +120,14 @@ export default function Receipt({ order, table }: { order: Order; table?: Dining
         ) : null}
         {order.totals.serviceCharge > 0 ? (
           <Row
-            label={`Service (${PRICING.serviceChargeRate}%)`}
+            label={`Service (${order.totals.serviceChargeRate}%)`}
             value={currency(order.totals.serviceCharge)}
           />
         ) : null}
         {order.totals.deliveryFee > 0 ? (
-          <Row label="Delivery" value={currency(order.totals.deliveryFee)} />
+          <Row label="Parcel fee" value={currency(order.totals.deliveryFee)} />
         ) : null}
-        <Row label={`Tax (${PRICING.taxRate}%)`} value={currency(order.totals.tax)} />
+        <Row label={`GST (${order.totals.taxRate}%)`} value={currency(order.totals.tax)} />
         {order.totals.tip > 0 ? <Row label="Tip" value={currency(order.totals.tip)} /> : null}
       </div>
 
@@ -145,7 +146,7 @@ export default function Receipt({ order, table }: { order: Order; table?: Dining
         </div>
       ) : (
         <p className="text-center text-[11px] font-bold uppercase tracking-wide">
-          ** Unpaid — settle at the table **
+          ** Unpaid — pay at the cashier **
         </p>
       )}
 

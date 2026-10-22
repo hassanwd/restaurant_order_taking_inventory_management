@@ -8,35 +8,29 @@ import SegmentedControl, { type SegmentOption } from "@/components/ui/SegmentedC
 import { cn } from "@/lib/cn";
 import { currency } from "@/lib/format";
 import type { DiningTable, Order } from "@/lib/types";
-import { useHydrated } from "@/lib/useHydrated";
-import { useAppSelector } from "@/store/hooks";
-import { selectOrderById } from "@/store/selectors";
 import KitchenTicket from "./KitchenTicket";
 import Receipt from "./Receipt";
 
 type DocumentKind = "receipt" | "kitchen" | "both";
 
 const TAB_OPTIONS: SegmentOption<DocumentKind>[] = [
-  { value: "receipt", label: "Customer receipt", icon: ReceiptText },
+  { value: "receipt", label: "Customer bill", icon: ReceiptText },
   { value: "kitchen", label: "Kitchen ticket", icon: ChefHat },
   { value: "both", label: "Print both", icon: Printer },
 ];
 
 export default function PrintScreen({
   orderId,
-  serverOrder,
+  order,
   tables,
   justPlaced,
 }: {
   orderId: string;
-  serverOrder: Order | null;
+  /** Resolved on the server for this employee; null when missing or not theirs. */
+  order: Order | null;
   tables: DiningTable[];
   justPlaced: boolean;
 }) {
-  const hydrated = useHydrated();
-  const storeOrder = useAppSelector(selectOrderById(orderId));
-  // Before hydration the server's answer is the only one that may render.
-  const order = (hydrated ? storeOrder : null) ?? serverOrder;
   const [kind, setKind] = useState<DocumentKind>("receipt");
 
   if (!order) {
@@ -45,7 +39,7 @@ export default function PrintScreen({
         <EmptyState
           icon={Printer}
           title="Nothing to print"
-          description={`No order matches "${orderId}".`}
+          description={`No order matches "${orderId}", or it belongs to another employee.`}
           action={<ButtonLink href="/orders">Back to orders</ButtonLink>}
         />
       </div>
@@ -93,8 +87,8 @@ export default function PrintScreen({
               </p>
               <p className="text-xs text-fg-muted">
                 {order.payment
-                  ? `Paid by ${order.payment.method}. Hand the receipt to the guest.`
-                  : "Sent to the kitchen. The guest settles at the table."}
+                  ? `Paid by ${order.payment.method}. Hand the bill to the guest.`
+                  : "Sent to the kitchen. A cashier settles the bill with the guest."}
               </p>
             </div>
             <div className="flex gap-2">
@@ -118,7 +112,7 @@ export default function PrintScreen({
           {kind !== "kitchen" ? (
             <div className={cn(kind === "both" && "print-break")}>
               <p className="no-print mb-2 text-center text-[11px] font-bold uppercase tracking-wide text-fg-muted">
-                Customer receipt
+                Customer bill
               </p>
               <Receipt order={order} table={table} />
             </div>

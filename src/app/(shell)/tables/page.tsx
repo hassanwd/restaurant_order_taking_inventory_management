@@ -5,6 +5,7 @@ import { currency } from "@/lib/format";
 import { ORDER_TYPE_ICONS } from "@/lib/icons";
 import type { DiningTable } from "@/lib/types";
 import { getOrders, getTables } from "@/server/data";
+import { requirePermission } from "@/server/session";
 
 export const metadata = { title: "Tables" };
 
@@ -15,14 +16,15 @@ const STATUS_STYLE: Record<DiningTable["status"], string> = {
 };
 
 export default async function TablesPage() {
-  const [tables, orders] = await Promise.all([getTables(), getOrders()]);
+  const user = await requirePermission("tables.view");
+  const [tables, orders] = await Promise.all([getTables(), getOrders(user)]);
 
   // Which open order is sitting on which table.
   const openByTable = new Map(
     orders
       .filter(
         (order) =>
-          order.tableId && !["completed", "cancelled"].includes(order.status),
+          order.tableId && !["completed", "cancelled", "returned"].includes(order.status),
       )
       .map((order) => [order.tableId as string, order]),
   );
@@ -50,7 +52,12 @@ export default async function TablesPage() {
               .filter((table) => table.area === area)
               .map((table) => {
                 const order = openByTable.get(table.id);
-                const href = order ? `/orders/${order.id}` : `/order/new?table=${table.id}`;
+                const occupiedElsewhere = !order && table.status === "occupied";
+                const href = order
+                  ? `/orders/${order.id}`
+                  : occupiedElsewhere
+                    ? "/tables"
+                    : `/order/new?table=${table.id}`;
                 const OrderTypeIcon = order ? ORDER_TYPE_ICONS[order.type] : null;
 
                 return (
@@ -81,6 +88,8 @@ export default async function TablesPage() {
                             Open order — tap to view
                           </span>
                         </p>
+                      ) : occupiedElsewhere ? (
+                        <p className="text-xs text-fg-muted">Occupied — order taken by another employee</p>
                       ) : (
                         <p className="flex items-center gap-1 text-xs font-semibold text-accent">
                           Start a dine-in order

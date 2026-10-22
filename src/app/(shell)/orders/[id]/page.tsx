@@ -1,5 +1,6 @@
 import OrderDetail from "@/components/order/OrderDetail";
 import { getOrderById } from "@/server/data";
+import { requirePermission } from "@/server/session";
 
 export async function generateMetadata({ params }: PageProps<"/orders/[id]">) {
   const { id } = await params;
@@ -7,10 +8,10 @@ export async function generateMetadata({ params }: PageProps<"/orders/[id]">) {
 }
 
 export default async function OrderDetailPage({ params }: PageProps<"/orders/[id]">) {
+  const user = await requirePermission("order.view.own");
   const { id } = await params;
-  // Server lookup covers the seeded orders; orders placed in this browser
-  // session are resolved from the store inside the client component.
-  const serverOrder = await getOrderById(id);
+  // Not-found and not-yours look identical, so order ids cannot be probed.
+  const order = await getOrderById(user, id);
 
-  return <OrderDetail orderId={id} serverOrder={serverOrder} />;
+  return <OrderDetail orderId={id} order={order} role={user.role} />;
 }

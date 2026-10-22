@@ -23,12 +23,11 @@ export default function KitchenTicket({
       <div className="flex items-baseline justify-between">
         <span className="text-[18px] font-bold">{order.code}</span>
         <span className="text-[16px] font-bold">
-          {table ? table.name : order.type === "delivery" ? "DELIVERY" : "TAKEAWAY"}
+          {table ? table.name : order.type === "parcel" ? "PARCEL" : "TAKEAWAY"}
         </span>
       </div>
       <p className="text-[10px]">
         {formatDateTime(order.createdAt)} UTC · {order.cashier}
-        {order.tableId ? ` · ${order.guests} guests` : ""}
       </p>
 
       <div className="my-2 border-t border-dashed border-ink-400" />

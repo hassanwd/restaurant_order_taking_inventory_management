@@ -39,22 +39,29 @@ export function lineTotal(line: CartLine) {
 export const ORDER_TYPE_LABEL: Record<OrderType, string> = {
   "dine-in": "Dine In",
   takeaway: "Takeaway",
-  delivery: "Delivery",
+  parcel: "Parcel",
 };
 
 export const PAYMENT_LABEL: Record<PaymentMethod, string> = {
   cash: "Cash",
   card: "Card",
-  wallet: "Wallet",
 };
 
 export const STATUS_LABEL: Record<OrderStatus, string> = {
   pending: "Pending",
   preparing: "Preparing",
   ready: "Ready",
-  served: "Served",
+  delivery: "Out for delivery",
   completed: "Completed",
   cancelled: "Cancelled",
+  returned: "Returned",
+};
+
+/** Outlined, so an order-type badge never reads as a (filled) status badge sitting next to it. */
+export const ORDER_TYPE_CLASS: Record<OrderType, string> = {
+  "dine-in": "border border-accent/60 text-accent",
+  takeaway: "border border-info/60 text-info",
+  parcel: "border border-fg/50 text-fg",
 };
 
 /** Tailwind classes per status, all sourced from the global theme tokens. */
@@ -62,24 +69,37 @@ export const STATUS_CLASS: Record<OrderStatus, string> = {
   pending: "bg-warning-soft text-warning",
   preparing: "bg-info-soft text-info",
   ready: "bg-accent-soft text-accent",
-  served: "bg-accent-soft text-accent",
+  delivery: "bg-info-soft text-info",
   completed: "bg-success-soft text-success",
   cancelled: "bg-danger-soft text-danger",
+  returned: "bg-warning-soft text-warning",
 };
 
-/** The forward-only status pipeline used by the order detail screen. */
+/** The forward-only status pipeline for dine-in and takeaway orders. */
 export const STATUS_FLOW: OrderStatus[] = [
   "pending",
   "preparing",
   "ready",
-  "served",
   "completed",
 ];
 
-export function nextStatus(status: OrderStatus): OrderStatus | null {
-  const index = STATUS_FLOW.indexOf(status);
-  if (index === -1 || index === STATUS_FLOW.length - 1) return null;
-  return STATUS_FLOW[index + 1];
+/** A parcel has one more step: once ready it is handed to delivery before it is completed. */
+export const PARCEL_STATUS_FLOW: OrderStatus[] = [
+  "pending",
+  "preparing",
+  "ready",
+  "delivery",
+  "completed",
+];
+
+export const flowFor = (type: OrderType): OrderStatus[] =>
+  type === "parcel" ? PARCEL_STATUS_FLOW : STATUS_FLOW;
+
+export function nextStatus(status: OrderStatus, type: OrderType = "dine-in"): OrderStatus | null {
+  const flow = flowFor(type);
+  const index = flow.indexOf(status);
+  if (index === -1 || index === flow.length - 1) return null;
+  return flow[index + 1];
 }
 
 export function initials(name: string) {

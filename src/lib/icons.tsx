@@ -2,7 +2,7 @@ import {
   Armchair,
   Banknote,
   Bell,
-  Bike,
+  Boxes,
   CakeSlice,
   ChefHat,
   CircleCheck,
@@ -13,16 +13,25 @@ import {
   CreditCard,
   CupSoda,
   Flame,
+  Gift,
   LayoutDashboard,
+  Monitor,
   LayoutGrid,
   ListOrdered,
+  Package,
   Pizza,
+  Plus,
+  Receipt,
   Salad,
   Sandwich,
   ShoppingBag,
-  Smartphone,
   Soup,
+  Truck,
+  Undo2,
+  Users,
   Utensils,
+  UtensilsCrossed,
+  BarChart3,
   type LucideIcon,
 } from "lucide-react";
 import type { OrderStatus, OrderType, PaymentMethod } from "./types";
@@ -36,22 +45,22 @@ import type { OrderStatus, OrderType, PaymentMethod } from "./types";
 export const ORDER_TYPE_ICONS: Record<OrderType, LucideIcon> = {
   "dine-in": Utensils,
   takeaway: ShoppingBag,
-  delivery: Bike,
+  parcel: Package,
 };
 
 export const PAYMENT_ICONS: Record<PaymentMethod, LucideIcon> = {
   cash: Banknote,
   card: CreditCard,
-  wallet: Smartphone,
 };
 
 export const STATUS_ICONS: Record<OrderStatus, LucideIcon> = {
   pending: Clock,
   preparing: CookingPot,
   ready: Bell,
-  served: Utensils,
+  delivery: Truck,
   completed: CircleCheck,
   cancelled: CircleX,
+  returned: Undo2,
 };
 
 /** Keyed by category id from `src/data/menu.ts` — chrome only, not menu data. */
@@ -64,13 +73,21 @@ export const CATEGORY_ICONS: Record<string, LucideIcon> = {
   pasta: ChefHat,
   desserts: CakeSlice,
   drinks: CupSoda,
+  addons: Plus,
+  deals: Gift,
 };
 
 export const NAV_ICONS = {
   dashboard: LayoutDashboard,
   newOrder: ClipboardList,
   orders: ListOrdered,
+  monitor: Monitor,
   tables: Armchair,
+  menu: UtensilsCrossed,
+  inventory: Boxes,
+  billing: Receipt,
+  reports: BarChart3,
+  employees: Users,
 } satisfies Record<string, LucideIcon>;
 
 /** Fallback for a category id this map doesn't know about. */

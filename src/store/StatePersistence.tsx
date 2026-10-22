@@ -1,18 +1,13 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { hydrateCart, type CartState } from "./slices/cartSlice";
-import { hydrateOrders } from "./slices/ordersSlice";
-import { useAppDispatch, useAppStore } from "./hooks";
-import type { Order } from "@/lib/types";
+import { hydrateCart, resetCart, type CartState } from "./slices/cartSlice";
+import { useAppDispatch, useAppSelector, useAppStore } from "./hooks";
+import { selectUser } from "./selectors";
 
-const CART_KEY = "ots.cart.v1";
-const ORDERS_KEY = "ots.orders.v1";
-
-interface StoredOrders {
-  items: Order[];
-  localIds: string[];
-}
+/** Saved per employee, so a shared register never shows one person's half-built order to the next. */
+const cartKey = (userId: string) => `ots.cart.v2.${userId}`;
+const LEGACY_KEYS = ["ots.cart.v1", "ots.orders.v1"];
 
 function read<T>(key: string): T | null {
   try {
@@ -32,63 +27,54 @@ function write(key: string, value: unknown) {
 }
 
 /**
- * Keeps the in-progress cart and any locally created orders across reloads.
+ * Keeps the in-progress cart across reloads, for the signed-in employee only.
  *
  * Restoring happens in an effect so the server HTML and the first client render
- * always match. Screens where the restored data changes what is on screen —
- * the orders list, order details, the receipt — additionally guard on
- * `useHydrated()`, so they stay correct even if a Suspense boundary is added
- * later and hydration is split across passes.
+ * always match. When nobody is signed in the cart is wiped from memory and the
+ * saved copy is left alone for its owner's next sign-in.
  */
 export default function StatePersistence() {
   const store = useAppStore();
   const dispatch = useAppDispatch();
-  const restored = useRef(false);
+  const user = useAppSelector(selectUser);
+  const userId = user?.id ?? null;
+  const restoredFor = useRef<string | null>(null);
 
   useEffect(() => {
-    if (restored.current) return;
-    restored.current = true;
-
-    const cart = read<Partial<CartState>>(CART_KEY);
-    if (cart && Array.isArray(cart.lines)) {
-      dispatch(hydrateCart(cart));
+    // Orders used to be cached in the browser; they now live on the server only.
+    for (const key of LEGACY_KEYS) {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {
+        /* ignore */
+      }
     }
-
-    const orders = read<StoredOrders>(ORDERS_KEY);
-    if (orders && Array.isArray(orders.items)) {
-      // Only replay orders that originated on this client; the rest come from
-      // the server on every render.
-      const localIds = new Set(orders.localIds ?? []);
-      dispatch(
-        hydrateOrders({
-          items: orders.items.filter((order) => localIds.has(order.id)),
-          localIds: [...localIds],
-        }),
-      );
-    }
-  }, [dispatch]);
+  }, []);
 
   useEffect(() => {
+    if (restoredFor.current === userId) return;
+    restoredFor.current = userId;
+
+    dispatch(resetCart());
+    if (!userId) return;
+    const cart = read<Partial<CartState>>(cartKey(userId));
+    if (cart && Array.isArray(cart.lines)) dispatch(hydrateCart(cart));
+  }, [dispatch, userId]);
+
+  useEffect(() => {
+    if (!userId) return;
     let frame = 0;
     const unsubscribe = store.subscribe(() => {
-      if (!restored.current) return;
+      if (restoredFor.current !== userId) return;
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const state = store.getState();
-        write(CART_KEY, state.cart);
-        const localIds = new Set(state.orders.localIds);
-        write(ORDERS_KEY, {
-          items: state.orders.items.filter((order) => localIds.has(order.id)),
-          localIds: state.orders.localIds,
-        });
-      });
+      frame = requestAnimationFrame(() => write(cartKey(userId), store.getState().cart));
     });
 
     return () => {
       cancelAnimationFrame(frame);
       unsubscribe();
     };
-  }, [store]);
+  }, [store, userId]);
 
   return null;
 }

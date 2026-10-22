@@ -1,9 +1,10 @@
 "use client";
 
-import { ArrowLeft, Printer, SearchX, StickyNote } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { ArrowLeft, Banknote, Printer, SearchX, StickyNote, Undo2 } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Card, EmptyState, KeyValue, SectionTitle, StatusBadge } from "@/components/ui/primitives";
-import { OUTLET, PRICING } from "@/data/settings";
 import { cn } from "@/lib/cn";
 import {
   currency,
@@ -12,30 +13,42 @@ import {
   nextStatus,
   ORDER_TYPE_LABEL,
   PAYMENT_LABEL,
-  STATUS_FLOW,
+  flowFor,
   STATUS_LABEL,
 } from "@/lib/format";
 import { ORDER_TYPE_ICONS } from "@/lib/icons";
-import type { Order } from "@/lib/types";
-import { useHydrated } from "@/lib/useHydrated";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { selectOrderById } from "@/store/selectors";
-import { updateOrderStatus } from "@/store/slices/ordersSlice";
+import { can } from "@/lib/permissions";
+import type { Order, Role } from "@/lib/types";
+import { useServerAction } from "@/lib/useServerAction";
+import {
+  advanceOrderAction,
+  cancelOrderAction,
+  returnOrderAction,
+  settleOrderAction,
+} from "@/server/actions/orders";
+import { useAppDispatch } from "@/store/hooks";
 import { showToast } from "@/store/slices/uiSlice";
+import ReasonModal from "./ReasonModal";
+import SettleModal from "./SettleModal";
+
+type Dialog = "cancel" | "return" | "settle" | null;
+
 
 export default function OrderDetail({
   orderId,
-  serverOrder,
+  order,
+  role,
 }: {
   orderId: string;
-  /** Rendered on the server; the store copy wins once it has one. */
-  serverOrder: Order | null;
+  /** Resolved on the server for this employee; null when it does not exist or is not theirs. */
+  order: Order | null;
+  role: Role;
 }) {
+  const router = useRouter();
   const dispatch = useAppDispatch();
-  const hydrated = useHydrated();
-  const storeOrder = useAppSelector(selectOrderById(orderId));
-  // Before hydration the server's answer is the only one that may render.
-  const order = (hydrated ? storeOrder : null) ?? serverOrder;
+  const { call, pending } = useServerAction();
+  const [dialog, setDialog] = useState<Dialog>(null);
+  const [error, setError] = useState<string | null>(null);
 
   if (!order) {
     return (
@@ -43,26 +56,48 @@ export default function OrderDetail({
         <EmptyState
           icon={SearchX}
           title="Order not found"
-          description={`No order matches "${orderId}". It may have been placed on another register.`}
+          description={`No order matches "${orderId}", or it belongs to another employee.`}
           action={<ButtonLink href="/orders">Back to orders</ButtonLink>}
         />
       </div>
     );
   }
 
-  const upcoming = nextStatus(order.status);
-  const activeIndex = STATUS_FLOW.indexOf(order.status);
+  const upcoming = nextStatus(order.status, order.type);
+  const closed = order.status === "cancelled" || order.status === "returned";
+  const flow = flowFor(order.type);
+  const activeIndex = flow.indexOf(order.status);
   const OrderTypeIcon = ORDER_TYPE_ICONS[order.type];
 
-  const advance = () => {
-    if (!upcoming) return;
-    dispatch(updateOrderStatus({ id: order.id, status: upcoming }));
-    dispatch(showToast({ message: `${order.code} marked ${STATUS_LABEL[upcoming].toLowerCase()}` }));
+  // This page only moves an order up to Ready. Handing a parcel to delivery and completing an order
+  // happen on Monitor › Ready; a parcel that is out for delivery is finished from the Orders list.
+  const canAdvance =
+    can(role, "order.advance") &&
+    upcoming !== null &&
+    upcoming !== "completed" &&
+    upcoming !== "delivery" &&
+    !closed;
+  const finishesElsewhere = can(role, "order.advance") && !closed && (upcoming === "completed" || upcoming === "delivery");
+  const canSettle = can(role, "payment.settle") && !order.payment && !closed;
+  // Before completion: cancel or return. After completion: only roles allowed to refund it.
+  const beforeCompletion = ["pending", "preparing", "ready", "delivery"].includes(order.status);
+  const canCancel = can(role, "order.cancel") && beforeCompletion;
+  const canReturn =
+    (can(role, "order.return") && beforeCompletion) ||
+    (can(role, "order.return.completed") && order.status === "completed");
+
+  const finish = (message: string, tone?: "danger") => {
+    dispatch(showToast({ message, tone }));
+    setDialog(null);
+    setError(null);
+    router.refresh();
   };
 
-  const cancel = () => {
-    dispatch(updateOrderStatus({ id: order.id, status: "cancelled" }));
-    dispatch(showToast({ message: `${order.code} cancelled`, tone: "danger" }));
+  const advance = async () => {
+    if (!upcoming) return;
+    const result = await call(() => advanceOrderAction(order.id));
+    if (result.ok) finish(`${order.code} marked ${STATUS_LABEL[upcoming].toLowerCase()}`);
+    else dispatch(showToast({ message: result.error, tone: "danger" }));
   };
 
   return (
@@ -80,7 +115,7 @@ export default function OrderDetail({
           <p className="mt-1 flex items-center gap-1.5 text-xs text-fg-muted">
             <OrderTypeIcon className="size-3.5" aria-hidden />
             {ORDER_TYPE_LABEL[order.type]}
-            {order.tableId ? ` · ${order.tableId} · ${order.guests} guests` : ""} ·{" "}
+            {order.tableId ? ` · ${order.tableId}` : ""} ·{" "}
             {formatDateTime(order.createdAt)} UTC · {order.cashier}
           </p>
         </div>
@@ -88,22 +123,57 @@ export default function OrderDetail({
         <div className="flex flex-wrap gap-2">
           <ButtonLink href={`/print/${order.id}`} variant="secondary">
             <Printer className="size-4" aria-hidden />
-            Print
+            Bill / Print
           </ButtonLink>
-          {upcoming ? <Button onClick={advance}>Mark {STATUS_LABEL[upcoming]}</Button> : null}
-          {order.status !== "cancelled" && order.status !== "completed" ? (
-            <Button variant="danger" onClick={cancel}>
-              Cancel
+          {canSettle ? (
+            <Button onClick={() => setDialog("settle")}>
+              <Banknote className="size-4" aria-hidden />
+              Settle bill
+            </Button>
+          ) : null}
+          {canAdvance ? (
+            <Button variant={canSettle ? "secondary" : "primary"} disabled={pending} onClick={advance}>
+              Mark {STATUS_LABEL[upcoming]}
+            </Button>
+          ) : null}
+          {canReturn ? (
+            <Button variant="danger" onClick={() => setDialog("return")}>
+              <Undo2 className="size-4" aria-hidden />
+              Return
+            </Button>
+          ) : null}
+          {canCancel ? (
+            <Button variant="danger" onClick={() => setDialog("cancel")}>
+              Cancel order
             </Button>
           ) : null}
         </div>
       </div>
 
+      {finishesElsewhere ? (
+        <p className="rounded-xl bg-info-soft px-4 py-2.5 text-xs font-semibold text-info">
+          {order.status === "delivery" ? (
+            <>
+              This parcel is out for delivery. Confirm the delivery{order.payment ? "" : " and payment"} from the{" "}
+              <span className="font-bold">Orders</span> list.
+            </>
+          ) : order.type === "parcel" ? (
+            <>
+              This parcel is ready. Hand it to delivery from <span className="font-bold">Monitor › Ready</span>.
+            </>
+          ) : (
+            <>
+              This order is ready. Complete it from <span className="font-bold">Monitor › Ready</span>.
+            </>
+          )}
+        </p>
+      ) : null}
+
       <Card className="p-5">
         <SectionTitle title="Progress" subtitle="Advance the order as the kitchen works through it" />
         <ol className="mt-4 flex flex-wrap items-center gap-2">
-          {STATUS_FLOW.map((status, index) => {
-            const done = order.status !== "cancelled" && index <= activeIndex;
+          {flow.map((status, index) => {
+            const done = !closed && index <= activeIndex;
             return (
               <li key={status} className="flex items-center gap-2">
                 <span
@@ -119,11 +189,11 @@ export default function OrderDetail({
                   </span>
                   {STATUS_LABEL[status]}
                 </span>
-                {index < STATUS_FLOW.length - 1 ? (
+                {index < flow.length - 1 ? (
                   <span
                     className={cn(
                       "hidden h-0.5 w-6 rounded-full sm:block",
-                      index < activeIndex ? "bg-accent" : "bg-line-strong",
+                      index < activeIndex && !closed ? "bg-accent" : "bg-line-strong",
                     )}
                   />
                 ) : null}
@@ -133,7 +203,20 @@ export default function OrderDetail({
         </ol>
         {order.status === "cancelled" ? (
           <p className="mt-3 rounded-xl bg-danger-soft px-3 py-2 text-xs font-semibold text-danger">
-            This order was cancelled and will not be charged.
+            {order.returned
+              ? "This order was cancelled after payment, and the payment was refunded"
+              : "This order was cancelled and will not be charged"}
+            {order.cancelReason ? ` — ${order.cancelReason}` : ""}.
+          </p>
+        ) : null}
+        {order.returned ? (
+          <p className="mt-3 rounded-xl bg-warning-soft px-3 py-2 text-xs font-semibold text-warning">
+            {order.status === "cancelled" ? "Refunded" : "Returned"} by {order.returned.byName} on{" "}
+            {formatDateTime(order.returned.at)} UTC ·{" "}
+            {order.returned.amount > 0
+              ? `refund ${currency(order.returned.amount)}`
+              : "no payment had been taken, nothing to refund"}{" "}
+            — {order.returned.reason}
           </p>
         ) : null}
       </Card>
@@ -158,6 +241,11 @@ export default function OrderDetail({
                       {line.options
                         .map((option) => `${option.groupName}: ${option.choiceName}`)
                         .join(" · ")}
+                    </p>
+                  ) : null}
+                  {line.basePrice !== line.listPrice ? (
+                    <p className="mt-0.5 text-[11px] font-semibold text-warning">
+                      Price adjusted from {currency(line.listPrice)}
                     </p>
                   ) : null}
                   {line.notes ? (
@@ -196,19 +284,24 @@ export default function OrderDetail({
               ) : null}
               {order.totals.serviceCharge > 0 ? (
                 <KeyValue
-                  label={`Service (${PRICING.serviceChargeRate}%)`}
+                  label={`Service (${order.totals.serviceChargeRate}%)`}
                   value={currency(order.totals.serviceCharge)}
                 />
               ) : null}
               {order.totals.deliveryFee > 0 ? (
-                <KeyValue label="Delivery" value={currency(order.totals.deliveryFee)} />
+                <KeyValue label="Parcel fee" value={currency(order.totals.deliveryFee)} />
               ) : null}
-              <KeyValue label={`Tax (${PRICING.taxRate}%)`} value={currency(order.totals.tax)} />
+              <KeyValue label={`GST (${order.totals.taxRate}%)`} value={currency(order.totals.tax)} />
               {order.totals.tip > 0 ? (
                 <KeyValue label="Tip" value={currency(order.totals.tip)} />
               ) : null}
               <div className="my-2 border-t border-dashed border-line-strong" />
               <KeyValue label="Total" value={currency(order.totals.total)} strong />
+              {!order.payment && !closed ? (
+                <p className="text-[10px] text-fg-subtle">
+                  GST is provisional (cash rate) until the bill is settled.
+                </p>
+              ) : null}
             </div>
           </Card>
 
@@ -221,10 +314,11 @@ export default function OrderDetail({
                   <KeyValue label="Reference" value={order.payment.reference} />
                   <KeyValue label="Tendered" value={currency(order.payment.amountTendered)} />
                   <KeyValue label="Change" value={currency(order.payment.change)} />
+                  {order.paidAt ? <KeyValue label="Paid" value={`${formatDateTime(order.paidAt)} UTC`} /> : null}
                 </>
               ) : (
                 <p className="rounded-xl bg-warning-soft px-3 py-2 text-xs font-semibold text-warning">
-                  Not settled yet — the guest pays at the table.
+                  Not settled yet — payment is taken by cash or card.
                 </p>
               )}
             </div>
@@ -235,19 +329,73 @@ export default function OrderDetail({
             <div className="mt-4 space-y-2">
               <KeyValue label="Name" value={order.customer.name || "Walk-in Guest"} />
               <KeyValue label="Phone" value={order.customer.phone || "—"} />
+              <KeyValue label="Email" value={order.customer.email || "—"} />
               {order.customer.address ? (
                 <div className="pt-1">
                   <p className="text-[11px] font-bold uppercase tracking-wide text-fg-muted">
-                    Address
+                    Location
                   </p>
                   <p className="mt-1 text-sm text-fg">{order.customer.address}</p>
                 </div>
               ) : null}
-              <KeyValue label="Served by" value={order.cashier || OUTLET.cashier} />
+              <KeyValue label="Taken by" value={order.cashier} />
             </div>
           </Card>
         </div>
       </div>
+
+      {dialog === "settle" ? (
+        <SettleModal
+          order={order}
+          open
+          pending={pending}
+          error={error}
+          onClose={() => {
+            setDialog(null);
+            setError(null);
+          }}
+          onConfirm={async (input) => {
+            const result = await call(() => settleOrderAction(order.id, input));
+            if (result.ok) finish(`${order.code} settled by ${input.method}`);
+            else setError(result.error);
+          }}
+        />
+      ) : null}
+
+      {dialog === "cancel" || dialog === "return" ? (
+        <ReasonModal
+          open
+          title={dialog === "cancel" ? `Cancel ${order.code}?` : `Return ${order.code}?`}
+          subtitle={
+            dialog === "cancel"
+              ? order.payment
+                ? `The order is called off and the ${currency(order.totals.total)} already paid is refunded.`
+                : "The order is called off. It will not be charged or counted as a sale."
+              : order.payment
+                ? `${currency(order.totals.total)} is refunded and the order moves to the returned records.`
+                : "No payment was taken, so nothing is refunded. The order moves to the returned records."
+          }
+          confirmLabel={dialog === "cancel" ? "Cancel order" : "Confirm return"}
+          pending={pending}
+          error={error}
+          onClose={() => {
+            setDialog(null);
+            setError(null);
+          }}
+          onConfirm={async (reason) => {
+            const result = await call(() =>
+              dialog === "cancel"
+                ? cancelOrderAction(order.id, reason)
+                : returnOrderAction(order.id, reason),
+            );
+            if (result.ok) {
+              finish(dialog === "cancel" ? `${order.code} cancelled` : `${order.code} returned`, "danger");
+            } else {
+              setError(result.error);
+            }
+          }}
+        />
+      ) : null}
     </div>
   );
 }
