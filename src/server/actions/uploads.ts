@@ -27,14 +27,17 @@ export async function uploadImageAction(
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const saved = await saveUpload(buffer).catch(() => null);
+    let saved: Awaited<ReturnType<typeof saveUpload>> | null = null;
+    let saveError: unknown = null;
+    try {
+      saved = await saveUpload(buffer);
+    } catch (error) {
+      saveError = error;
+    }
     if (!saved) {
       // TEMPORARY diagnostic — remove once the Vercel-only upload failure is root-caused.
-      throw new ActionError(
-        `DEBUG not sniffed: file.size=${file.size} file.type=${file.type} file.name=${file.name} ` +
-          `buffer.length=${buffer.length} head=${buffer.subarray(0, 16).toString("hex")} ` +
-          `tail=${buffer.subarray(-16).toString("hex")}`,
-      );
+      const message = saveError instanceof Error ? `${saveError.name}: ${saveError.message}` : String(saveError);
+      throw new ActionError(`DEBUG saveUpload threw: ${message}`);
     }
 
     await prisma.$transaction((tx) =>
