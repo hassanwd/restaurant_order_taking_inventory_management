@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 import { can, type Permission } from "@/lib/permissions";
 import type { SessionUser } from "@/lib/types";
-import { getDb, mutate, type Database } from "./db";
+import { ensureSeeded, type Tx } from "./db";
+import { prisma } from "./prisma";
 import { hashToken, newSessionToken } from "./security";
 
 const secure = process.env.NODE_ENV === "production" && process.env.OTS_INSECURE_COOKIES !== "1";
@@ -28,19 +29,21 @@ const cookieOptions = (maxAgeSeconds: number) =>
     maxAge: maxAgeSeconds,
   }) as const;
 
-/** Creates a session for `userId` (inside an existing `mutate()`), returning the cookie token. */
-export function openSession(db: Database, userId: string) {
-  const now = Date.now();
+/** Creates a session for `userId` (inside an existing transaction), returning the cookie token. */
+export async function openSession(tx: Tx, userId: string) {
+  const now = new Date();
   // Drop anything already dead so the table stays small.
-  db.sessions = db.sessions.filter((session) => Date.parse(session.expiresAt) > now);
+  await tx.session.deleteMany({ where: { expiresAt: { lte: now } } });
 
   const token = newSessionToken();
-  db.sessions.push({
-    id: hashToken(token),
-    userId,
-    createdAt: new Date(now).toISOString(),
-    lastSeenAt: new Date(now).toISOString(),
-    expiresAt: new Date(now + ABSOLUTE_MS).toISOString(),
+  await tx.session.create({
+    data: {
+      id: hashToken(token),
+      userId,
+      createdAt: now,
+      lastSeenAt: now,
+      expiresAt: new Date(now.getTime() + ABSOLUTE_MS),
+    },
   });
   return token;
 }
@@ -59,10 +62,10 @@ export async function currentSessionId() {
 }
 
 /** Revokes every session of a user — used on freeze, delete, and password change/reset. */
-export function revokeSessions(db: Database, userId: string, exceptSessionId?: string | null) {
-  db.sessions = db.sessions.filter(
-    (session) => session.userId !== userId || session.id === exceptSessionId,
-  );
+export async function revokeSessions(tx: Tx, userId: string, exceptSessionId?: string | null) {
+  await tx.session.deleteMany({
+    where: { userId, ...(exceptSessionId ? { id: { not: exceptSessionId } } : {}) },
+  });
 }
 
 /**
@@ -71,29 +74,27 @@ export function revokeSessions(db: Database, userId: string, exceptSessionId?: s
  * deleting an account ends their access on the very next request, not at expiry.
  */
 export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
+  await ensureSeeded();
+
   const id = await currentSessionId();
   if (!id) return null;
 
-  const db = await getDb();
-  const session = db.sessions.find((entry) => entry.id === id);
+  const session = await prisma.session.findUnique({ where: { id }, include: { user: true } });
   if (!session) return null;
 
   const now = Date.now();
-  if (Date.parse(session.expiresAt) <= now || now - Date.parse(session.lastSeenAt) > IDLE_MS) {
+  if (session.expiresAt.getTime() <= now || now - session.lastSeenAt.getTime() > IDLE_MS) {
     return null;
   }
 
-  const user = db.users.find((entry) => entry.id === session.userId);
+  const user = session.user;
   if (!user || user.frozen) return null;
 
-  if (now - Date.parse(session.lastSeenAt) > TOUCH_MS) {
-    await mutate((draft) => {
-      const live = draft.sessions.find((entry) => entry.id === id);
-      if (live) live.lastSeenAt = new Date(now).toISOString();
-    });
+  if (now - session.lastSeenAt.getTime() > TOUCH_MS) {
+    await prisma.session.update({ where: { id }, data: { lastSeenAt: new Date(now) } }).catch(() => {});
   }
 
-  return { id: user.id, name: user.name, username: user.username, role: user.role };
+  return { id: user.id, name: user.name, username: user.username, role: user.role as SessionUser["role"] };
 });
 
 /** For pages and layouts: redirects to the sign-in screen when nobody is signed in. */

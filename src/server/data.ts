@@ -1,11 +1,11 @@
 import "server-only";
 
+import type { Prisma } from "@prisma/client";
 import { OUTLET } from "@/data/settings";
 import { TABLES } from "@/data/tables";
 import { CATEGORIES } from "@/data/menu";
 import { can } from "@/lib/permissions";
 import { round2 } from "@/lib/format";
-import { roleSeesOrder } from "@/lib/orders";
 import type {
   Category,
   Deal,
@@ -13,27 +13,47 @@ import type {
   EmployeeView,
   MenuItem,
   Order,
+  OrderStatus,
   Pricing,
   SessionUser,
 } from "@/lib/types";
-import { getDb, type Database } from "./db";
+import { ensureSeeded, mapDeal, mapMenuItem, mapOrder } from "./db";
+import { prisma } from "./prisma";
 
 /**
  * Server-only data access layer.
  *
  * Every function that returns orders takes the signed-in user and filters by
  * what their role may see — a worker only ever gets their own orders, so an
- * order id guessed from a URL still resolves to "not found" (no IDOR).
+ * order id guessed from a URL still resolves to "not found" (no IDOR). That
+ * scoping is expressed as a Postgres `where` clause (`orderVisibilityWhere`) so
+ * it is enforced by the query itself, not by filtering a fully-loaded table.
  */
+
+export const OPEN_STATUSES: OrderStatus[] = ["pending", "preparing", "ready", "delivery"];
+
+/** Mirrors `roleSeesOrder` + the own/all scoping that `can()` grants, as a Prisma `where`. */
+export function orderVisibilityWhere(user: SessionUser): Prisma.OrderWhereInput {
+  const where: Prisma.OrderWhereInput = {};
+  if (!can(user.role, "order.view.all")) {
+    if (!can(user.role, "order.view.own")) return { id: "::none::" }; // no grant — sees nothing
+    where.createdById = user.id;
+  }
+  if (user.role === "super_admin") {
+    where.status = { in: ["completed", "cancelled"] };
+  }
+  return where;
+}
 
 export async function getCategories(): Promise<Category[]> {
   return CATEGORIES;
 }
 
-export function dealToMenuItem(deal: Deal, db: Database): MenuItem {
+export function dealToMenuItem(deal: Deal, menuItems: MenuItem[]): MenuItem {
+  const byId = new Map(menuItems.map((item) => [item.id, item]));
   const components = deal.items.map((component) => ({
     component,
-    item: db.menuItems.find((entry) => entry.id === component.itemId),
+    item: byId.get(component.itemId),
   }));
   const summary = components
     .map(({ component, item }) => `${component.quantity}× ${item?.name ?? "Removed item"}`)
@@ -57,23 +77,26 @@ export function dealToMenuItem(deal: Deal, db: Database): MenuItem {
 }
 
 /** Everything the order screen can sell: menu items plus live deals. Also the server's price list. */
-export function buildCatalog(db: Database): MenuItem[] {
+export function buildCatalog(menuItems: MenuItem[], deals: Deal[]): MenuItem[] {
   return [
-    ...db.menuItems.map((item) => ({ ...item, kind: "item" as const })),
-    ...db.deals.filter((deal) => deal.active).map((deal) => dealToMenuItem(deal, db)),
+    ...menuItems.map((item) => ({ ...item, kind: "item" as const })),
+    ...deals.filter((deal) => deal.active).map((deal) => dealToMenuItem(deal, menuItems)),
   ];
 }
 
 export async function getCatalog(): Promise<MenuItem[]> {
-  return buildCatalog(await getDb());
+  const [menuItems, deals] = await Promise.all([getMenuItems(), getDeals()]);
+  return buildCatalog(menuItems, deals);
 }
 
 export async function getMenuItems(): Promise<MenuItem[]> {
-  return (await getDb()).menuItems;
+  const rows = await prisma.menuItem.findMany({ orderBy: { name: "asc" } });
+  return rows.map(mapMenuItem);
 }
 
 export async function getDeals(): Promise<Deal[]> {
-  return (await getDb()).deals;
+  const rows = await prisma.deal.findMany({ orderBy: { createdAt: "asc" } });
+  return rows.map(mapDeal);
 }
 
 /**
@@ -81,16 +104,26 @@ export async function getDeals(): Promise<Deal[]> {
  * dine-in order sits on it, whichever employee took that order.
  */
 export async function getTables(): Promise<DiningTable[]> {
-  const db = await getDb();
-  const busy = new Set(db.orders.filter((order) => order.tableId && isOpen(order)).map((o) => o.tableId));
+  const openOrders = await prisma.order.findMany({
+    where: { tableId: { not: null }, status: { in: OPEN_STATUSES } },
+    select: { tableId: true },
+  });
+  const busy = new Set(openOrders.map((order) => order.tableId));
   return TABLES.map((table) => ({
     ...table,
     status: busy.has(table.id) ? "occupied" : table.status === "occupied" ? "free" : table.status,
   }));
 }
 
+/**
+ * The root layout reads this in parallel with `getCurrentUser()` (which seeds as a side effect),
+ * so on a cold database this can run before that seed finishes — it has to be able to self-heal
+ * too, not just assume someone else already did.
+ */
 export async function getPricing(): Promise<Pricing> {
-  return (await getDb()).settings.pricing;
+  await ensureSeeded();
+  const settings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" } });
+  return settings.pricing as unknown as Pricing;
 }
 
 export async function getOutlet() {
@@ -98,30 +131,25 @@ export async function getOutlet() {
 }
 
 export const isOpen = (order: Order) =>
-  ["pending", "preparing", "ready", "delivery"].includes(order.status);
-
-const newestFirst = (a: Order, b: Order) => b.createdAt.localeCompare(a.createdAt);
-
-export function visibleOrders(db: Database, user: SessionUser): Order[] {
-  const all = can(user.role, "order.view.all");
-  const own = can(user.role, "order.view.own");
-  return db.orders
-    .filter((order) => (all ? true : own && order.createdById === user.id))
-    .filter((order) => roleSeesOrder(user.role, order))
-    .sort(newestFirst);
-}
+  (OPEN_STATUSES as string[]).includes(order.status);
 
 export async function getOrders(user: SessionUser): Promise<Order[]> {
-  return visibleOrders(await getDb(), user);
+  const rows = await prisma.order.findMany({
+    where: orderVisibilityWhere(user),
+    orderBy: { createdAt: "desc" },
+  });
+  return rows.map(mapOrder);
 }
 
 export async function getOrderById(user: SessionUser, id: string): Promise<Order | null> {
-  const orders = await getOrders(user);
-  return orders.find((order) => order.id === id) ?? null;
+  const row = await prisma.order.findFirst({ where: { id, ...orderVisibilityWhere(user) } });
+  return row ? mapOrder(row) : null;
 }
 
 export async function getOpenOrderCount(user: SessionUser) {
-  return (await getOrders(user)).filter(isOpen).length;
+  return prisma.order.count({
+    where: { ...orderVisibilityWhere(user), status: { in: OPEN_STATUSES } },
+  });
 }
 
 export interface DashboardStats {
@@ -135,15 +163,22 @@ export interface DashboardStats {
   tablesTotal: number;
 }
 
-const isToday = (iso: string) => iso.slice(0, 10) === new Date().toISOString().slice(0, 10);
-
 /** Orders that count as sales: placed, not cancelled, not refunded. */
 export const isBillable = (order: Order) =>
   order.status !== "cancelled" && order.status !== "returned";
 
 export async function getDashboardStats(user: SessionUser): Promise<DashboardStats> {
-  const [allOrders, tables] = await Promise.all([getOrders(user), getTables()]);
-  const orders = allOrders.filter((order) => isToday(order.createdAt));
+  const startOfDay = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+  const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+
+  const [todayRows, openOrders, tables] = await Promise.all([
+    prisma.order.findMany({
+      where: { ...orderVisibilityWhere(user), createdAt: { gte: startOfDay, lt: endOfDay } },
+    }),
+    prisma.order.count({ where: { ...orderVisibilityWhere(user), status: { in: OPEN_STATUSES } } }),
+    getTables(),
+  ]);
+  const orders = todayRows.map(mapOrder);
   const billable = orders.filter(isBillable);
 
   const revenueToday = billable.reduce((sum, order) => sum + order.totals.total, 0);
@@ -173,7 +208,7 @@ export async function getDashboardStats(user: SessionUser): Promise<DashboardSta
     ordersToday: orders.length,
     cancelledToday: orders.filter((order) => order.status === "cancelled").length,
     revenueToday: round2(revenueToday),
-    openOrders: allOrders.filter(isOpen).length,
+    openOrders,
     byStatus,
     topItems: [...tally.values()].sort((a, b) => b.quantity - a.quantity).slice(0, 5),
     tablesOccupied: tables.filter((table) => table.status === "occupied").length,
@@ -185,31 +220,33 @@ export async function getDashboardStats(user: SessionUser): Promise<DashboardSta
 const ACTIVE_WINDOW_MS = 15 * 60 * 1000;
 
 export async function getEmployees(): Promise<EmployeeView[]> {
-  const db = await getDb();
   const now = Date.now();
-  return db.users.map((user) => {
-    const sessions = db.sessions.filter(
-      (session) =>
-        session.userId === user.id &&
-        Date.parse(session.expiresAt) > now &&
-        now - Date.parse(session.lastSeenAt) < ACTIVE_WINDOW_MS,
+  const [users, sessions, orderCounts] = await Promise.all([
+    prisma.user.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.session.findMany({ where: { expiresAt: { gt: new Date() } } }),
+    prisma.order.groupBy({ by: ["createdById"], _count: { _all: true } }),
+  ]);
+  const ordersByUser = new Map(orderCounts.map((entry) => [entry.createdById, entry._count._all]));
+
+  return users.map((user) => {
+    const active = sessions.filter(
+      (session) => session.userId === user.id && now - session.lastSeenAt.getTime() < ACTIVE_WINDOW_MS,
     );
-    const lastActive = sessions.reduce<string | null>(
-      (latest, session) => (!latest || session.lastSeenAt > latest ? session.lastSeenAt : latest),
-      null,
-    );
+    const lastActive = active.reduce<string | null>((latest, session) => {
+      const seen = session.lastSeenAt.toISOString();
+      return !latest || seen > latest ? seen : latest;
+    }, null);
     return {
       id: user.id,
       name: user.name,
       username: user.username,
-      role: user.role,
+      role: user.role as EmployeeView["role"],
       frozen: user.frozen,
-      createdAt: user.createdAt,
-      lastLoginAt: user.lastLoginAt,
+      createdAt: user.createdAt.toISOString(),
+      lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
       lastActiveAt: lastActive,
-      ordersPlaced: db.orders.filter((order) => order.createdById === user.id).length,
-      locked: user.lockedUntil !== null && Date.parse(user.lockedUntil) > now,
+      ordersPlaced: ordersByUser.get(user.id) ?? 0,
+      locked: user.lockedUntil !== null && user.lockedUntil.getTime() > now,
     };
   });
 }
-

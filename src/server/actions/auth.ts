@@ -3,7 +3,8 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { getDb, mutate, recordAudit } from "../db";
+import { ensureSeeded, recordAudit } from "../db";
+import { prisma } from "../prisma";
 import {
   clearHits,
   decoyHash,
@@ -52,6 +53,8 @@ const loginSchema = z.object({
 });
 
 export async function loginAction(_: LoginState, formData: FormData): Promise<LoginState> {
+  await ensureSeeded();
+
   const parsed = loginSchema.safeParse({
     username: formData.get("username"),
     password: formData.get("password"),
@@ -66,11 +69,10 @@ export async function loginAction(_: LoginState, formData: FormData): Promise<Lo
     return { error: LOCK_MESSAGE, username };
   }
 
-  const db = await getDb();
-  const user = db.users.find((entry) => entry.username === username);
+  const user = await prisma.user.findUnique({ where: { username } });
   const now = Date.now();
 
-  if (user?.lockedUntil && Date.parse(user.lockedUntil) > now) {
+  if (user?.lockedUntil && user.lockedUntil.getTime() > now) {
     return { error: LOCK_MESSAGE, username };
   }
 
@@ -80,18 +82,21 @@ export async function loginAction(_: LoginState, formData: FormData): Promise<Lo
   if (!user || !valid) {
     recordHit(ipKey, WINDOW_MS);
     recordHit(userKey, WINDOW_MS);
-    await mutate((draft) => {
-      const record = draft.users.find((entry) => entry.username === username);
+    await prisma.$transaction(async (tx) => {
+      const record = await tx.user.findUnique({ where: { username } });
       if (record) {
-        record.failedAttempts += 1;
-        if (record.failedAttempts >= LOCK_AFTER) {
-          record.lockedUntil = new Date(Date.now() + LOCK_MS).toISOString();
-          record.failedAttempts = 0;
-        }
+        const failedAttempts = record.failedAttempts + 1;
+        await tx.user.update({
+          where: { id: record.id },
+          data:
+            failedAttempts >= LOCK_AFTER
+              ? { failedAttempts: 0, lockedUntil: new Date(Date.now() + LOCK_MS) }
+              : { failedAttempts },
+        });
       }
       // Unknown usernames are not echoed: people sometimes type their password into that box.
-      recordAudit(
-        draft,
+      await recordAudit(
+        tx,
         null,
         "login.failed",
         record ? `Failed sign-in for "${username}" from ${ip}` : `Failed sign-in for an unknown username from ${ip}`,
@@ -102,20 +107,20 @@ export async function loginAction(_: LoginState, formData: FormData): Promise<Lo
 
   // The password was right, so telling them about a frozen account leaks nothing.
   if (user.frozen) {
-    await mutate((draft) =>
-      recordAudit(draft, user, "login.blocked", `Frozen account "${username}" tried to sign in`),
+    await prisma.$transaction((tx) =>
+      recordAudit(tx, user, "login.blocked", `Frozen account "${username}" tried to sign in`),
     );
     return { error: "This account has been frozen. Please contact your administrator.", username };
   }
 
-  const token = await mutate((draft) => {
-    const record = draft.users.find((entry) => entry.id === user.id)!;
-    record.failedAttempts = 0;
-    record.lockedUntil = null;
-    record.lastLoginAt = new Date().toISOString();
-    recordAudit(draft, user, "login", `Signed in from ${ip}`);
+  const token = await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: user.id },
+      data: { failedAttempts: 0, lockedUntil: null, lastLoginAt: new Date() },
+    });
+    await recordAudit(tx, user, "login", `Signed in from ${ip}`);
     // A brand-new token on every sign-in — never reuse one — defeats session fixation.
-    return openSession(draft, user.id);
+    return openSession(tx, user.id);
   });
 
   clearHits(userKey);
@@ -127,9 +132,9 @@ export async function logoutAction() {
   const user = await getCurrentUser();
   const sessionId = await currentSessionId();
   if (sessionId) {
-    await mutate((draft) => {
-      draft.sessions = draft.sessions.filter((session) => session.id !== sessionId);
-      if (user) recordAudit(draft, user, "logout", "Signed out");
+    await prisma.$transaction(async (tx) => {
+      await tx.session.deleteMany({ where: { id: sessionId } });
+      if (user) await recordAudit(tx, user, "logout", "Signed out");
     });
   }
   await clearSessionCookie();
@@ -158,7 +163,7 @@ export async function changePasswordAction(input: {
     const key = `pwchange:${user.id}`;
     if (isLimited(key, 5, WINDOW_MS)) throw new ActionError(LOCK_MESSAGE);
 
-    const record = (await getDb()).users.find((entry) => entry.id === user.id);
+    const record = await prisma.user.findUnique({ where: { id: user.id } });
     if (!record || !(await verifyPassword(parsed.data.current, record.passwordHash))) {
       recordHit(key, WINDOW_MS);
       throw new ActionError("Your current password is not correct.");
@@ -169,13 +174,13 @@ export async function changePasswordAction(input: {
 
     const passwordHash = await hashPassword(parsed.data.next);
     const keep = await currentSessionId();
-    await mutate((draft) => {
-      const target = draft.users.find((entry) => entry.id === user.id);
+    await prisma.$transaction(async (tx) => {
+      const target = await tx.user.findUnique({ where: { id: user.id } });
       if (!target) throw new ActionError("Account not found.");
-      target.passwordHash = passwordHash;
+      await tx.user.update({ where: { id: user.id }, data: { passwordHash } });
       // Anyone else holding a session for this account is signed out.
-      revokeSessions(draft, user.id, keep);
-      recordAudit(draft, user, "password.change", "Changed their own password");
+      await revokeSessions(tx, user.id, keep);
+      await recordAudit(tx, user, "password.change", "Changed their own password");
     });
     clearHits(key);
     return { ok: true };

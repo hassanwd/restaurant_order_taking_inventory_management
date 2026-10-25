@@ -1,0 +1,134 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Employee accounts. `role`/order-type/status fields across this schema are kept as plain
+/// strings (not Prisma enums) so the values match `src/lib/types.ts`'s TS unions exactly,
+/// with Zod validating them at every write — see `src/server/actions/helpers.ts`.
+model User {
+  id             String    @id
+  name           String
+  username       String    @unique
+  role           String
+  passwordHash   String
+  frozen         Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  lastLoginAt    DateTime?
+  failedAttempts Int       @default(0)
+  lockedUntil    DateTime?
+  sessions       Session[]
+
+  @@map("users")
+}
+
+/// `id` is the SHA-256 of the session cookie token — the token itself is never stored.
+model Session {
+  id         String   @id
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  expiresAt  DateTime
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model MenuItem {
+  id           String  @id
+  name         String
+  description  String
+  price        Float
+  categoryId   String
+  image        String?
+  ingredients  String?
+  prepMinutes  Int
+  available    Boolean @default(true)
+  tags         String[]
+  popular      Boolean @default(false)
+  /// `OptionGroup[]` — see src/lib/types.ts.
+  optionGroups Json    @default("[]")
+
+  @@map("menu_items")
+}
+
+model Deal {
+  id           String   @id
+  name         String
+  description  String
+  price        Float
+  /// `DealComponent[]`
+  items        Json     @default("[]")
+  image        String?
+  ingredients  String?
+  /// `OptionGroup[]`
+  optionGroups Json     @default("[]")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  createdBy    String
+
+  @@map("deals")
+}
+
+model Order {
+  /// Same value as `code` (e.g. "ORD-1001") — kept as a separate column to match the app's
+  /// `Order` type, which has always carried both.
+  id              String    @id
+  code            String
+  type            String
+  tableId         String?
+  guests          Int       @default(1)
+  /// `Customer`
+  customer        Json
+  /// `CartLine[]`
+  lines           Json
+  notes           String
+  discountPercent Float     @default(0)
+  /// `OrderTotals`
+  totals          Json
+  status          String
+  /// `PaymentDetails | null`
+  payment         Json?
+  paidAt          DateTime?
+  cashier         String
+  createdById     String
+  /// `OrderReturn | null`
+  returned        Json?
+  cancelReason    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status])
+  @@index([tableId])
+  @@index([createdById])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model AuditEntry {
+  id        String   @id
+  at        DateTime @default(now())
+  actorId   String?
+  actorName String
+  action    String
+  detail    String
+
+  @@index([at])
+  @@map("audit_entries")
+}
+
+/// Single row, id always "singleton" — tax/service-charge configuration plus the order counter.
+model Settings {
+  id           String @id @default("singleton")
+  /// `Pricing`
+  pricing      Json
+  orderCounter Int    @default(1000)
+
+  @@map("settings")
+}

@@ -1,13 +1,15 @@
 "use server";
 
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { TABLES } from "@/data/tables";
 import { nextStatus, round2 } from "@/lib/format";
 import { can } from "@/lib/permissions";
 import { computeTotals } from "@/lib/pricing";
-import type { CartLine, Order, SelectedOption } from "@/lib/types";
-import { mutate, recordAudit, type Database } from "../db";
-import { buildCatalog, isOpen, visibleOrders } from "../data";
+import type { CartLine, Pricing, SelectedOption } from "@/lib/types";
+import { mapOrder, mapDeal, mapMenuItem, recordAudit, type Tx } from "../db";
+import { buildCatalog, isOpen, OPEN_STATUSES, orderVisibilityWhere } from "../data";
+import { prisma } from "../prisma";
 import { randomId } from "../security";
 import {
   ActionError,
@@ -19,6 +21,8 @@ import {
   run,
   type ActionResult,
 } from "./helpers";
+
+const asJson = (value: unknown) => value as unknown as Prisma.InputJsonValue;
 
 const lineSchema = z.object({
   itemId: z.string().max(60),
@@ -71,8 +75,7 @@ export type PlaceOrderInput = z.input<typeof placeSchema>;
  * so a tampered request cannot buy a steak for a cent. The one exception is an
  * explicit price override, which only roles with `price.adjust` may send.
  */
-function buildLines(db: Database, inputs: z.output<typeof lineSchema>[], canAdjust: boolean) {
-  const catalog = buildCatalog(db);
+function buildLines(catalog: ReturnType<typeof buildCatalog>, inputs: z.output<typeof lineSchema>[], canAdjust: boolean) {
   const adjustments: string[] = [];
 
   const lines = inputs.map((input): CartLine => {
@@ -184,19 +187,26 @@ export async function placeOrderAction(
       if (!data.customer.address) throw new ActionError("Location is required for parcel orders.");
     }
 
-    const orderId = await mutate((db) => {
+    const orderId = await prisma.$transaction(async (tx) => {
       if (data.type === "dine-in") {
         const table = TABLES.find((entry) => entry.id === data.tableId);
         if (!table) throw new ActionError("Select a table for dine-in.");
         // Checked against every employee's open orders, not just the caller's.
-        const taken = db.orders.some((order) => order.tableId === table.id && isOpen(order));
-        if (taken) {
-          throw new ActionError(`${table.name} is already occupied.`);
-        }
+        const taken = await tx.order.findFirst({
+          where: { tableId: table.id, status: { in: OPEN_STATUSES } },
+          select: { id: true },
+        });
+        if (taken) throw new ActionError(`${table.name} is already occupied.`);
       }
 
-      const { lines, adjustments } = buildLines(db, data.lines, can(user.role, "price.adjust"));
-      const pricing = db.settings.pricing;
+      const [menuItemRows, dealRows, settings] = await Promise.all([
+        tx.menuItem.findMany(),
+        tx.deal.findMany(),
+        tx.settings.findUniqueOrThrow({ where: { id: "singleton" } }),
+      ]);
+      const catalog = buildCatalog(menuItemRows.map(mapMenuItem), dealRows.map(mapDeal));
+      const { lines, adjustments } = buildLines(catalog, data.lines, can(user.role, "price.adjust"));
+      const pricing = settings.pricing as unknown as Pricing;
       const method = data.settle?.method ?? null;
       const totals = computeTotals({
         lines,
@@ -206,42 +216,46 @@ export async function placeOrderAction(
         method,
       });
 
-      db.settings.orderCounter += 1;
-      const code = `ORD-${db.settings.orderCounter}`;
-      const now = new Date().toISOString();
+      const updatedSettings = await tx.settings.update({
+        where: { id: "singleton" },
+        data: { orderCounter: { increment: 1 } },
+      });
+      const code = `ORD-${updatedSettings.orderCounter}`;
+      const now = new Date();
       const payment = data.settle
         ? settlement(data.settle.method, data.settle.amountTendered, totals.total, code)
         : null;
 
-      const order: Order = {
-        id: code,
-        code,
-        type: data.type,
-        tableId: data.type === "dine-in" ? data.tableId : null,
-        guests: data.type === "dine-in" ? data.guests : 1,
-        customer: data.customer,
-        lines,
-        notes: data.notes,
-        discountPercent: data.discountPercent,
-        totals,
-        status: "pending",
-        payment,
-        paidAt: payment ? now : null,
-        cashier: user.name,
-        createdById: user.id,
-        returned: null,
-        cancelReason: null,
-        createdAt: now,
-        updatedAt: now,
-      };
-      db.orders.unshift(order);
+      await tx.order.create({
+        data: {
+          id: code,
+          code,
+          type: data.type,
+          tableId: data.type === "dine-in" ? data.tableId : null,
+          guests: data.type === "dine-in" ? data.guests : 1,
+          customer: asJson(data.customer),
+          lines: asJson(lines),
+          notes: data.notes,
+          discountPercent: data.discountPercent,
+          totals: asJson(totals),
+          status: "pending",
+          payment: payment ? asJson(payment) : Prisma.DbNull,
+          paidAt: payment ? now : null,
+          cashier: user.name,
+          createdById: user.id,
+          returned: Prisma.DbNull,
+          cancelReason: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
 
-      recordAudit(db, user, "order.place", `${code} · ${totals.total.toFixed(2)}${payment ? ` · paid ${payment.method}` : ""}`);
+      await recordAudit(tx, user, "order.place", `${code} · ${totals.total.toFixed(2)}${payment ? ` · paid ${payment.method}` : ""}`);
       if (adjustments.length > 0) {
-        recordAudit(db, user, "price.adjust", `${code} · ${adjustments.join("; ")}`);
+        await recordAudit(tx, user, "price.adjust", `${code} · ${adjustments.join("; ")}`);
       }
       if (data.discountPercent > 0) {
-        recordAudit(db, user, "discount.apply", `${code} · ${data.discountPercent}% off`);
+        await recordAudit(tx, user, "discount.apply", `${code} · ${data.discountPercent}% off`);
       }
       return code;
     });
@@ -251,17 +265,17 @@ export async function placeOrderAction(
 }
 
 /** Finds an order the user may touch — a worker's own, or any for roles that see all. */
-function ownedOrder(db: Database, user: Parameters<typeof visibleOrders>[1], id: string) {
-  const visible = visibleOrders(db, user).find((order) => order.id === id);
-  if (!visible) throw new ActionError("Order not found.");
-  return db.orders.find((order) => order.id === id)!;
+async function findVisibleOrder(tx: Tx, user: Parameters<typeof orderVisibilityWhere>[0], id: string) {
+  const row = await tx.order.findFirst({ where: { id, ...orderVisibilityWhere(user) } });
+  if (!row) throw new ActionError("Order not found.");
+  return { row, order: mapOrder(row) };
 }
 
 export async function advanceOrderAction(id: string): Promise<ActionResult> {
   return run(async () => {
     const user = await authorize("order.advance");
-    await mutate((db) => {
-      const order = ownedOrder(db, user, String(id));
+    await prisma.$transaction(async (tx) => {
+      const { row, order } = await findVisibleOrder(tx, user, String(id));
       const upcoming = nextStatus(order.status, order.type);
       if (!upcoming) throw new ActionError("This order cannot be advanced.");
       if (upcoming === "completed" && !order.payment) {
@@ -270,9 +284,8 @@ export async function advanceOrderAction(id: string): Promise<ActionResult> {
       if (upcoming === "completed" && !can(user.role, "payment.settle")) {
         throw new ActionError("Only a cashier can complete an order.");
       }
-      order.status = upcoming;
-      order.updatedAt = new Date().toISOString();
-      recordAudit(db, user, "order.status", `${order.code} → ${upcoming}`);
+      await tx.order.update({ where: { id: row.id }, data: { status: upcoming } });
+      await recordAudit(tx, user, "order.status", `${order.code} → ${upcoming}`);
     });
     return { ok: true };
   });
@@ -284,25 +297,30 @@ export async function cancelOrderAction(id: string, reason: string): Promise<Act
   return run(async () => {
     const user = await authorize("order.cancel");
     const text = parse(reasonSchema, reason);
-    await mutate((db) => {
-      const order = ownedOrder(db, user, String(id));
+    await prisma.$transaction(async (tx) => {
+      const { row, order } = await findVisibleOrder(tx, user, String(id));
       if (!isOpen(order)) throw new ActionError("Only orders that are not yet completed can be cancelled.");
-      const now = new Date().toISOString();
-      order.status = "cancelled";
-      order.cancelReason = text;
+      const now = new Date();
       // A cancelled order that was already paid is refunded, and the refund is recorded.
-      if (order.payment) {
-        order.returned = {
-          reason: `Cancelled after payment — ${text}`,
-          amount: order.totals.total,
-          at: now,
-          byId: user.id,
-          byName: user.name,
-        };
-      }
-      order.updatedAt = now;
-      recordAudit(
-        db,
+      const returned = order.payment
+        ? {
+            reason: `Cancelled after payment — ${text}`,
+            amount: order.totals.total,
+            at: now.toISOString(),
+            byId: user.id,
+            byName: user.name,
+          }
+        : null;
+      await tx.order.update({
+        where: { id: row.id },
+        data: {
+          status: "cancelled",
+          cancelReason: text,
+          returned: returned ? asJson(returned) : Prisma.DbNull,
+        },
+      });
+      await recordAudit(
+        tx,
         user,
         "order.cancel",
         `${order.code} · ${text}${order.payment ? ` · refund ${order.totals.total.toFixed(2)}` : ""}`,
@@ -316,8 +334,8 @@ export async function returnOrderAction(id: string, reason: string): Promise<Act
   return run(async () => {
     const user = await authorize("order.return");
     const text = parse(reasonSchema, reason);
-    await mutate((db) => {
-      const order = ownedOrder(db, user, String(id));
+    await prisma.$transaction(async (tx) => {
+      const { row, order } = await findVisibleOrder(tx, user, String(id));
       // Before completion any role holding order.return may return an order; after completion
       // only roles with order.return.completed may.
       if (order.status === "completed") {
@@ -327,18 +345,14 @@ export async function returnOrderAction(id: string, reason: string): Promise<Act
       } else if (!isOpen(order)) {
         throw new ActionError("This order can no longer be returned.");
       }
-      const now = new Date().toISOString();
+      const now = new Date();
       const refund = order.payment ? order.totals.total : 0;
-      order.status = "returned";
-      order.returned = {
-        reason: text,
-        amount: refund,
-        at: now,
-        byId: user.id,
-        byName: user.name,
-      };
-      order.updatedAt = now;
-      recordAudit(db, user, "order.return", `${order.code} · refund ${refund.toFixed(2)} · ${text}`);
+      const returned = { reason: text, amount: refund, at: now.toISOString(), byId: user.id, byName: user.name };
+      await tx.order.update({
+        where: { id: row.id },
+        data: { status: "returned", returned: asJson(returned) },
+      });
+      await recordAudit(tx, user, "order.return", `${order.code} · refund ${refund.toFixed(2)} · ${text}`);
     });
     return { ok: true };
   });
@@ -351,30 +365,37 @@ export async function settleOrderAction(
   return run(async () => {
     const user = await authorize("payment.settle");
     const data = parse(settleSchema, input);
-    await mutate((db) => {
-      const order = ownedOrder(db, user, String(id));
+    await prisma.$transaction(async (tx) => {
+      const { row, order } = await findVisibleOrder(tx, user, String(id));
       if (order.payment) throw new ActionError("This bill has already been settled.");
       if (order.status === "cancelled" || order.status === "returned") {
         throw new ActionError("This order can no longer be paid.");
       }
 
       // GST is decided by how the bill is settled, so the totals are re-priced here.
+      const settings = await tx.settings.findUniqueOrThrow({ where: { id: "singleton" } });
       const totals = computeTotals({
         lines: order.lines,
         orderType: order.type,
         discountPercent: order.discountPercent,
-        pricing: db.settings.pricing,
+        pricing: settings.pricing as unknown as Pricing,
         method: data.method,
       });
-      const now = new Date().toISOString();
-      order.totals = totals;
-      order.payment = settlement(data.method, data.amountTendered, totals.total, order.code);
-      order.paidAt = now;
+      const now = new Date();
+      const payment = settlement(data.method, data.amountTendered, totals.total, order.code);
       // A parcel that is out for delivery is finished the moment the money is received.
-      if (order.status === "delivery") order.status = "completed";
-      order.updatedAt = now;
-      recordAudit(
-        db,
+      const nextOrderStatus = order.status === "delivery" ? "completed" : order.status;
+      await tx.order.update({
+        where: { id: row.id },
+        data: {
+          totals: asJson(totals),
+          payment: asJson(payment),
+          paidAt: now,
+          status: nextOrderStatus,
+        },
+      });
+      await recordAudit(
+        tx,
         user,
         "order.settle",
         `${order.code} · ${data.method} · ${totals.total.toFixed(2)} (GST ${totals.taxRate}%)`,

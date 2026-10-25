@@ -1,5 +1,6 @@
 import { can, type Permission } from "@/lib/permissions";
-import { mutate, recordAudit } from "@/server/db";
+import { recordAudit } from "@/server/db";
+import { prisma } from "@/server/prisma";
 import { buildBillingRange, buildReport, isPeriod } from "@/server/reports";
 import { getCurrentUser } from "@/server/session";
 
@@ -78,7 +79,7 @@ export async function GET(request: Request, ctx: RouteContext<"/export/[kind]">)
     }
   }
 
-  await mutate((db) => recordAudit(db, user, "export", `${label} (${rows.length - 1} rows)`));
+  await prisma.$transaction((tx) => recordAudit(tx, user, "export", `${label} (${rows.length - 1} rows)`));
 
   return new Response(toCsv(rows), {
     headers: {

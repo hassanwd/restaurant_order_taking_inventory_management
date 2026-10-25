@@ -1,33 +1,71 @@
 import "server-only";
 
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { CATEGORIES, MENU_ITEMS, SEED_DEALS } from "@/data/menu";
-import { buildSeedOrders, SEED_ORDER_COUNTER } from "@/data/orders";
+import { Prisma } from "@prisma/client";
+import type {
+  AuditEntry as PrismaAuditEntry,
+  Deal as PrismaDeal,
+  MenuItem as PrismaMenuItem,
+  Order as PrismaOrder,
+  Session as PrismaSession,
+  User as PrismaUser,
+} from "@prisma/client";
+import { CATEGORIES } from "@/data/menu";
 import { DEFAULT_PRICING } from "@/data/settings";
 import type {
   AuditEntry,
+  CartLine,
+  Customer,
   Deal,
+  DealComponent,
   MenuItem,
   Order,
-  Pricing,
+  OptionGroup,
+  OrderReturn,
+  OrderTotals,
+  PaymentDetails,
   Role,
 } from "@/lib/types";
-import { generatePassword, hashPassword, randomId } from "./security";
+import { prisma } from "./prisma";
+import { hashPassword, randomId } from "./security";
 
 /**
- * File-backed data store.
+ * Postgres-backed data store.
  *
- * Everything the app persists lives in one JSON document under `.data/` (git
- * ignored). Reads come from an in-memory copy; every write runs through
- * `mutate()`, which serialises writers, applies the change to a *clone*, writes
- * it to disk atomically (temp file + rename) and only then publishes it — so a
- * failed or half-applied change can never corrupt what other requests see.
- *
- * This is deliberately a single-process store: perfect for one register or a
- * small deployment. Moving to Postgres/MySQL later means re-implementing
- * `getDb`/`mutate` and the functions in `data.ts`; no page or action changes.
+ * Everything the app persists lives in the `fastfood` (or whatever `DATABASE_URL` points at)
+ * database. `recordAudit` and the mappers below are the thin, shared boundary between Prisma's
+ * generated row types (plain Dates, untyped Json columns) and the app's own TS interfaces
+ * (ISO date strings, typed nested shapes) used everywhere else in the codebase.
  */
+
+export const DATA_DIR = process.env.OTS_DATA_DIR ?? path.join(process.cwd(), ".data");
+
+export const categories = CATEGORIES;
+
+export type Tx = Prisma.TransactionClient;
+
+const AUDIT_DETAIL_LIMIT = 300;
+
+/** Append to the audit trail — call from inside the same transaction as the change it records. */
+export async function recordAudit(
+  tx: Tx,
+  actor: { id: string; name: string } | null,
+  action: string,
+  detail: string,
+) {
+  await tx.auditEntry.create({
+    data: {
+      id: randomId("aud"),
+      actorId: actor?.id ?? null,
+      actorName: actor?.name ?? "System",
+      action,
+      detail: detail.slice(0, AUDIT_DETAIL_LIMIT),
+    },
+  });
+}
+
+/* ---------------------------------------------------------- Prisma row → app type mappers */
 
 export interface UserRecord {
   id: string;
@@ -42,8 +80,22 @@ export interface UserRecord {
   lockedUntil: string | null;
 }
 
+export function mapUser(row: PrismaUser): UserRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    username: row.username,
+    role: row.role as Role,
+    passwordHash: row.passwordHash,
+    frozen: row.frozen,
+    createdAt: row.createdAt.toISOString(),
+    lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
+    failedAttempts: row.failedAttempts,
+    lockedUntil: row.lockedUntil?.toISOString() ?? null,
+  };
+}
+
 export interface SessionRecord {
-  /** SHA-256 of the cookie token — the token itself is never stored. */
   id: string;
   userId: string;
   createdAt: string;
@@ -51,221 +103,169 @@ export interface SessionRecord {
   expiresAt: string;
 }
 
-export interface Database {
-  version: 1;
-  users: UserRecord[];
-  sessions: SessionRecord[];
-  menuItems: MenuItem[];
-  deals: Deal[];
-  orders: Order[];
-  audit: AuditEntry[];
-  settings: { pricing: Pricing; orderCounter: number };
-}
-
-interface Holder {
-  db: Database | null;
-  loading: Promise<Database> | null;
-  queue: Promise<unknown>;
-}
-
-// Dev servers load a module once per bundle; hanging state off `globalThis`
-// keeps one store and one write queue no matter how often that happens.
-const globalForDb = globalThis as unknown as { __otsDb?: Holder };
-const holder: Holder = (globalForDb.__otsDb ??= { db: null, loading: null, queue: Promise.resolve() });
-
-export const DATA_DIR = process.env.OTS_DATA_DIR ?? path.join(process.cwd(), ".data");
-const DB_FILE = path.join(DATA_DIR, "db.json");
-
-async function seed(): Promise<Database> {
-  const now = new Date();
-  const iso = now.toISOString();
-  const pricing = DEFAULT_PRICING;
-
-  // No account ships with a known password: each is random, shown once.
-  const accounts: { name: string; username: string; role: Role; password: string }[] = [
-    { name: "Hassan K.", username: "superadmin", role: "super_admin", password: generatePassword() },
-    { name: "Sara Ahmed", username: "cashier", role: "admin", password: generatePassword() },
-    { name: "Bilal Raza", username: "waiter", role: "worker", password: generatePassword() },
-  ];
-
-  const users: UserRecord[] = [];
-  for (const account of accounts) {
-    users.push({
-      id: randomId("usr"),
-      name: account.name,
-      username: account.username,
-      role: account.role,
-      passwordHash: await hashPassword(account.password),
-      frozen: false,
-      createdAt: iso,
-      lastLoginAt: null,
-      failedAttempts: 0,
-      lockedUntil: null,
-    });
-  }
-
-  const creators = users.filter((user) => user.role !== "super_admin").map(({ id, name }) => ({ id, name }));
-  const orders = buildSeedOrders(now, creators, pricing);
-
-  const db: Database = {
-    version: 1,
-    users,
-    sessions: [],
-    menuItems: structuredClone(MENU_ITEMS),
-    deals: SEED_DEALS.map((deal) => ({
-      ...deal,
-      image: null,
-      ingredients: null,
-      optionGroups: [],
-      active: true,
-      createdAt: iso,
-      createdBy: users[0].id,
-    })),
-    orders,
-    audit: [],
-    settings: { pricing: structuredClone(pricing), orderCounter: SEED_ORDER_COUNTER(orders) },
+export function mapSession(row: PrismaSession): SessionRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    createdAt: row.createdAt.toISOString(),
+    lastSeenAt: row.lastSeenAt.toISOString(),
+    expiresAt: row.expiresAt.toISOString(),
   };
-
-  await persist(db);
-
-  const lines = accounts.map(
-    (account) => `${account.role.padEnd(12)} ${account.username.padEnd(12)} ${account.password}`,
-  );
-  const credentials = [
-    "Initial sign-in details — generated on first start.",
-    "Sign in, then change these from the account menu. Delete this file afterwards.",
-    "",
-    "role         username     password",
-    ...lines,
-    "",
-  ].join("\n");
-  await writeFile(path.join(DATA_DIR, "initial-credentials.txt"), credentials, { mode: 0o600 });
-  console.log(
-    `\n[ots] First start — created the data store in ${DATA_DIR}\n[ots] Initial sign-in details were written to ${path.join(DATA_DIR, "initial-credentials.txt")}\n${credentials}`,
-  );
-
-  return db;
 }
 
-async function persist(db: Database) {
-  await mkdir(DATA_DIR, { recursive: true });
-  const temp = `${DB_FILE}.${process.pid}.tmp`;
-  await writeFile(temp, JSON.stringify(db), { mode: 0o600 });
-  await rename(temp, DB_FILE);
+export function mapMenuItem(row: PrismaMenuItem): MenuItem {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    price: row.price,
+    categoryId: row.categoryId,
+    image: row.image,
+    ingredients: row.ingredients,
+    prepMinutes: row.prepMinutes,
+    available: row.available,
+    tags: row.tags,
+    popular: row.popular,
+    optionGroups: row.optionGroups as unknown as OptionGroup[],
+  };
 }
 
-/** Menu items, deals and cart lines used to carry an emoji `icon`; replaced by a photo `image`. */
-function addImageField(entry: Record<string, unknown>) {
-  if (typeof entry.image === "undefined") entry.image = null;
-  delete entry.icon;
+export function mapDeal(row: PrismaDeal): Deal {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    price: row.price,
+    items: row.items as unknown as DealComponent[],
+    image: row.image,
+    ingredients: row.ingredients,
+    optionGroups: row.optionGroups as unknown as OptionGroup[],
+    active: row.active,
+    createdAt: row.createdAt.toISOString(),
+    createdBy: row.createdBy,
+  };
 }
 
-/** Option groups saved before `maxSelect` existed get the old, unlimited behaviour. */
-function addMaxSelectField(groups: unknown) {
-  if (!Array.isArray(groups)) return;
-  for (const group of groups as Record<string, unknown>[]) {
-    if (typeof group.maxSelect === "undefined") group.maxSelect = null;
-  }
+export function mapOrder(row: PrismaOrder): Order {
+  return {
+    id: row.id,
+    code: row.code,
+    type: row.type as Order["type"],
+    tableId: row.tableId,
+    guests: row.guests,
+    customer: row.customer as unknown as Customer,
+    lines: row.lines as unknown as CartLine[],
+    notes: row.notes,
+    discountPercent: row.discountPercent,
+    totals: row.totals as unknown as OrderTotals,
+    status: row.status as Order["status"],
+    payment: row.payment as unknown as PaymentDetails | null,
+    paidAt: row.paidAt?.toISOString() ?? null,
+    cashier: row.cashier,
+    createdById: row.createdById,
+    returned: row.returned as unknown as OrderReturn | null,
+    cancelReason: row.cancelReason,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
 }
+
+export function mapAudit(row: PrismaAuditEntry): AuditEntry {
+  return {
+    id: row.id,
+    at: row.at.toISOString(),
+    actorId: row.actorId,
+    actorName: row.actorName,
+    action: row.action,
+    detail: row.detail,
+  };
+}
+
+/* ------------------------------------------------------------------------- first-run seed */
+
+let seeding: Promise<void> | null = null;
 
 /**
- * Brings a store written by an older version up to date — applied in memory on every load, same as
- * every read since first start; the file on disk only catches up on the next write.
- *
- * - The "served" status no longer exists. Orders saved with it move on: paid ones are
- *   complete, unpaid ones are ready (still waiting on the bill).
- * - Menu items, deals and cart lines get an `image` field in place of their old `icon`.
+ * Fixed so they're known up front — handy on a serverless deploy where there's no disk to read a
+ * generated-password file back from. Override any of them with `OTS_SEED_*_PASSWORD` env vars
+ * before first boot if you want different ones; otherwise change them from the account menu right
+ * after your first sign-in, since these are the same for every deployment of this codebase.
  */
-function migrate(db: Database): Database {
-  for (const order of db.orders) {
-    if ((order.status as string) === "served") order.status = order.payment ? "completed" : "ready";
-    for (const line of order.lines) addImageField(line as unknown as Record<string, unknown>);
-    // An order from before dine-in tracking existed (or one a dev build briefly stripped it from)
-    // has neither field — treat it as a non-table order rather than crash rendering it.
-    const loose = order as Partial<Record<"tableId" | "guests", unknown>>;
-    if (typeof loose.tableId === "undefined") order.tableId = null;
-    if (typeof loose.guests === "undefined") order.guests = 1;
-  }
-  for (const item of db.menuItems) {
-    addImageField(item as unknown as Record<string, unknown>);
-    addMaxSelectField(item.optionGroups);
-  }
-  for (const deal of db.deals) {
-    addImageField(deal as unknown as Record<string, unknown>);
-    const loose = deal as unknown as Partial<Record<"ingredients" | "optionGroups", unknown>>;
-    if (typeof loose.ingredients === "undefined") deal.ingredients = null;
-    if (!Array.isArray(loose.optionGroups)) deal.optionGroups = [];
-    addMaxSelectField(deal.optionGroups);
-  }
-  if (typeof db.settings.orderCounter !== "number") {
-    db.settings.orderCounter = SEED_ORDER_COUNTER(db.orders);
-  }
-  // Inventory tracking has been removed; drop its leftover keys from an older file rather than
-  // carry dead data forever.
-  const legacy = db as unknown as Record<string, unknown>;
-  delete legacy.inventory;
-  delete legacy.movements;
-  return db;
-}
+const SEED_PASSWORDS = {
+  super_admin: process.env.OTS_SEED_SUPERADMIN_PASSWORD ?? "SuperAdmin123!",
+  admin: process.env.OTS_SEED_CASHIER_PASSWORD ?? "Cashier123!",
+  worker: process.env.OTS_SEED_WAITER_PASSWORD ?? "Waiter123!",
+} as const;
 
-async function load(): Promise<Database> {
-  try {
-    const raw = await readFile(DB_FILE, "utf8");
-    return migrate(JSON.parse(raw) as Database);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return seed();
-    throw error;
-  }
-}
+/**
+ * Creates the three starter accounts and default pricing the very first time the app talks to an
+ * empty database. Safe to call on every request — after the first call it is a single cached no-op
+ * promise for the lifetime of the process, and a fresh process checks `settings` before doing
+ * anything, so re-running it (a redeploy, a second serverless instance racing on cold start) just
+ * finds the row already there and returns.
+ */
+export function ensureSeeded(): Promise<void> {
+  seeding ??= (async () => {
+    const already = await prisma.settings.findUnique({ where: { id: "singleton" } });
+    if (already) return;
 
-/** Read-only view of the store. Treat the result as immutable — writers use `mutate()`. */
-export async function getDb(): Promise<Database> {
-  if (holder.db) return holder.db;
-  holder.loading ??= load().then(
-    (db) => {
-      holder.db = db;
-      return db;
-    },
-    (error) => {
-      holder.loading = null; // let the next request retry instead of caching the failure
+    const accounts: { name: string; username: string; role: Role; password: string }[] = [
+      { name: "Hassan K.", username: "superadmin", role: "super_admin", password: SEED_PASSWORDS.super_admin },
+      { name: "Sara Ahmed", username: "cashier", role: "admin", password: SEED_PASSWORDS.admin },
+      { name: "Bilal Raza", username: "waiter", role: "worker", password: SEED_PASSWORDS.worker },
+    ];
+    const withHashes = await Promise.all(
+      accounts.map(async (account) => ({ ...account, passwordHash: await hashPassword(account.password) })),
+    );
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        for (const account of withHashes) {
+          await tx.user.create({
+            data: {
+              id: randomId("usr"),
+              name: account.name,
+              username: account.username,
+              role: account.role,
+              passwordHash: account.passwordHash,
+            },
+          });
+        }
+        await tx.settings.create({
+          data: {
+            id: "singleton",
+            pricing: DEFAULT_PRICING as unknown as Prisma.InputJsonValue,
+            orderCounter: 1000,
+          },
+        });
+      });
+    } catch (error) {
+      // Another process won the race to seed first (concurrent cold starts) — nothing to do.
+      if ((error as { code?: string }).code === "P2002") return;
       throw error;
-    },
-  );
-  return holder.loading;
-}
+    }
 
-/** Runs `fn` against a copy of the store, then saves and publishes it. Writers never interleave. */
-export function mutate<T>(fn: (db: Database) => T | Promise<T>): Promise<T> {
-  const run = holder.queue.then(async () => {
-    const draft = structuredClone(await getDb());
-    const result = await fn(draft);
-    await persist(draft);
-    holder.db = draft;
-    return result;
-  });
-  // Keep the queue alive after a failure so one bad write cannot wedge every later one.
-  holder.queue = run.catch(() => undefined);
-  return run;
-}
-
-export const categories = CATEGORIES;
-
-const AUDIT_LIMIT = 1000;
-
-/** Append to the audit trail from inside a `mutate()` callback. */
-export function recordAudit(
-  db: Database,
-  actor: { id: string; name: string } | null,
-  action: string,
-  detail: string,
-) {
-  db.audit.unshift({
-    id: randomId("aud"),
-    at: new Date().toISOString(),
-    actorId: actor?.id ?? null,
-    actorName: actor?.name ?? "System",
-    action,
-    detail: detail.slice(0, 300),
-  });
-  if (db.audit.length > AUDIT_LIMIT) db.audit.length = AUDIT_LIMIT;
+    const lines = accounts.map(
+      (account) => `${account.role.padEnd(12)} ${account.username.padEnd(12)} ${account.password}`,
+    );
+    const credentials = [
+      "Initial sign-in details — generated on first start.",
+      "Sign in, then change these from the account menu. Delete this file afterwards.",
+      "",
+      "role         username     password",
+      ...lines,
+      "",
+    ].join("\n");
+    // Best-effort only: a serverless deploy's filesystem is read-only outside /tmp, and the
+    // credentials are fixed/known anyway now — a failed write here must never fail the seed
+    // itself, since the accounts above are already committed by this point.
+    try {
+      await mkdir(DATA_DIR, { recursive: true });
+      await writeFile(path.join(DATA_DIR, "initial-credentials.txt"), credentials, { mode: 0o600 });
+    } catch {
+      // No writable disk here — the fixed passwords above are already known, so nothing is lost.
+    }
+    console.log(`\n[ots] First start — seeded the database.\n${credentials}`);
+  })();
+  return seeding;
 }

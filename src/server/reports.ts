@@ -3,7 +3,8 @@ import "server-only";
 import { round2 } from "@/lib/format";
 import { roleSeesOrder } from "@/lib/orders";
 import type { Order, PaymentMethod, Role } from "@/lib/types";
-import { getDb } from "./db";
+import { mapOrder } from "./db";
+import { prisma } from "./prisma";
 
 export type Period = "daily" | "weekly" | "monthly";
 
@@ -214,10 +215,22 @@ function buildBillingReport(all: Order[], range: Range): BillingReport {
   };
 }
 
+/**
+ * A return can land on an order placed long before the report window, so (as before) this loads
+ * every order a role may see — filtered only by status — rather than by date, and does both the
+ * "placed in range" and "returned in range" filtering in JS from that same set.
+ */
+async function roleOrders(role: Role): Promise<Order[]> {
+  const rows = await prisma.order.findMany({
+    where: role === "super_admin" ? { status: { in: ["completed", "cancelled"] } } : {},
+    orderBy: { createdAt: "desc" },
+  });
+  return rows.map(mapOrder).filter((order) => roleSeesOrder(role, order));
+}
+
 export async function buildReport(period: Period, date: string | undefined, role: Role): Promise<Report> {
-  const db = await getDb();
   const range = resolveRange(period, date);
-  const orders = db.orders.filter((order) => roleSeesOrder(role, order));
+  const orders = await roleOrders(role);
   return {
     range,
     orders: buildOrdersReport(orders, range),
@@ -227,7 +240,6 @@ export async function buildReport(period: Period, date: string | undefined, role
 
 /** Sales records for the Billing screen — every bill in an arbitrary day range. */
 export async function buildBillingRange(from: string, to: string, role: Role): Promise<BillingReport> {
-  const db = await getDb();
   const start = parseDay(from) ?? new Date(`${dayString(new Date())}T00:00:00Z`);
   const end = parseDay(to) ?? start;
   const range: Range = {
@@ -241,8 +253,6 @@ export async function buildBillingRange(from: string, to: string, role: Role): P
     previous: "",
     next: "",
   };
-  return buildBillingReport(
-    db.orders.filter((order) => roleSeesOrder(role, order)),
-    range,
-  );
+  const orders = await roleOrders(role);
+  return buildBillingReport(orders, range);
 }

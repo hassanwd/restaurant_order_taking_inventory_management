@@ -3,7 +3,8 @@
 import { z } from "zod";
 import { isRole } from "@/lib/permissions";
 import type { Role } from "@/lib/types";
-import { mutate, recordAudit, type Database } from "../db";
+import { recordAudit, type Tx } from "../db";
+import { prisma } from "../prisma";
 import { clearHits, hashPassword, passwordProblem, randomId } from "../security";
 import { revokeSessions } from "../session";
 import { ActionError, authorize, parse, requiredText, run, type ActionResult } from "./helpers";
@@ -20,10 +21,10 @@ const createSchema = z.object({
 });
 
 /** A system with no active super admin cannot be administered, so the last one is protected. */
-function activeSuperAdmins(db: Database, excludingId?: string) {
-  return db.users.filter(
-    (user) => user.role === "super_admin" && !user.frozen && user.id !== excludingId,
-  ).length;
+async function activeSuperAdmins(tx: Tx, excludingId?: string) {
+  return tx.user.count({
+    where: { role: "super_admin", frozen: false, id: excludingId ? { not: excludingId } : undefined },
+  });
 }
 
 export async function createEmployeeAction(
@@ -36,23 +37,19 @@ export async function createEmployeeAction(
     if (problem) throw new ActionError(problem);
     const passwordHash = await hashPassword(data.password);
 
-    await mutate((db) => {
-      if (db.users.some((user) => user.username === data.username)) {
-        throw new ActionError("That username is already taken.");
-      }
-      db.users.push({
-        id: randomId("usr"),
-        name: data.name,
-        username: data.username,
-        role: data.role as Role,
-        passwordHash,
-        frozen: false,
-        createdAt: new Date().toISOString(),
-        lastLoginAt: null,
-        failedAttempts: 0,
-        lockedUntil: null,
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.user.findUnique({ where: { username: data.username } });
+      if (existing) throw new ActionError("That username is already taken.");
+      await tx.user.create({
+        data: {
+          id: randomId("usr"),
+          name: data.name,
+          username: data.username,
+          role: data.role as Role,
+          passwordHash,
+        },
       });
-      recordAudit(db, actor, "employee.create", `${data.name} (@${data.username}) as ${data.role}`);
+      await recordAudit(tx, actor, "employee.create", `${data.name} (@${data.username}) as ${data.role}`);
     });
     return { ok: true };
   });
@@ -61,25 +58,26 @@ export async function createEmployeeAction(
 export async function setEmployeeFrozenAction(id: string, frozen: boolean): Promise<ActionResult> {
   return run(async () => {
     const actor = await authorize("employees.manage");
-    const username = await mutate((db) => {
-      const target = db.users.find((user) => user.id === String(id));
+    const next = Boolean(frozen);
+    const username = await prisma.$transaction(async (tx) => {
+      const target = await tx.user.findUnique({ where: { id: String(id) } });
       if (!target) throw new ActionError("Employee not found.");
       if (target.id === actor.id) throw new ActionError("You cannot freeze your own account.");
-      if (frozen && target.role === "super_admin" && activeSuperAdmins(db, target.id) === 0) {
+      if (next && target.role === "super_admin" && (await activeSuperAdmins(tx, target.id)) === 0) {
         throw new ActionError("At least one Super Admin must stay active.");
       }
-      target.frozen = Boolean(frozen);
-      if (!frozen) {
-        target.failedAttempts = 0;
-        target.lockedUntil = null;
-      } else {
+      await tx.user.update({
+        where: { id: target.id },
+        data: next ? { frozen: true } : { frozen: false, failedAttempts: 0, lockedUntil: null },
+      });
+      if (next) {
         // Freezing takes effect immediately — their open sessions are destroyed too.
-        revokeSessions(db, target.id);
+        await revokeSessions(tx, target.id);
       }
-      recordAudit(db, actor, frozen ? "employee.freeze" : "employee.unfreeze", `${target.name} (@${target.username})`);
+      await recordAudit(tx, actor, next ? "employee.freeze" : "employee.unfreeze", `${target.name} (@${target.username})`);
       return target.username;
     });
-    if (!frozen) clearHits(`login:user:${username}`);
+    if (!next) clearHits(`login:user:${username}`);
     return { ok: true };
   });
 }
@@ -87,17 +85,17 @@ export async function setEmployeeFrozenAction(id: string, frozen: boolean): Prom
 export async function deleteEmployeeAction(id: string): Promise<ActionResult> {
   return run(async () => {
     const actor = await authorize("employees.manage");
-    await mutate((db) => {
-      const target = db.users.find((user) => user.id === String(id));
+    await prisma.$transaction(async (tx) => {
+      const target = await tx.user.findUnique({ where: { id: String(id) } });
       if (!target) throw new ActionError("Employee not found.");
       if (target.id === actor.id) throw new ActionError("You cannot delete your own account.");
-      if (target.role === "super_admin" && activeSuperAdmins(db, target.id) === 0) {
+      if (target.role === "super_admin" && (await activeSuperAdmins(tx, target.id)) === 0) {
         throw new ActionError("At least one Super Admin must stay active.");
       }
-      revokeSessions(db, target.id);
-      db.users = db.users.filter((user) => user.id !== target.id);
+      await revokeSessions(tx, target.id);
+      await tx.user.delete({ where: { id: target.id } });
       // Their orders stay in the records, attributed by the name snapshot on each order.
-      recordAudit(db, actor, "employee.delete", `${target.name} (@${target.username})`);
+      await recordAudit(tx, actor, "employee.delete", `${target.name} (@${target.username})`);
     });
     return { ok: true };
   });
@@ -114,14 +112,15 @@ export async function resetEmployeePasswordAction(
     const problem = passwordProblem(data.password);
     if (problem) throw new ActionError(problem);
     const passwordHash = await hashPassword(data.password);
-    const username = await mutate((db) => {
-      const target = db.users.find((user) => user.id === data.id);
+    const username = await prisma.$transaction(async (tx) => {
+      const target = await tx.user.findUnique({ where: { id: data.id } });
       if (!target) throw new ActionError("Employee not found.");
-      target.passwordHash = passwordHash;
-      target.failedAttempts = 0;
-      target.lockedUntil = null;
-      revokeSessions(db, target.id);
-      recordAudit(db, actor, "employee.reset", `Password reset for ${target.name} (@${target.username})`);
+      await tx.user.update({
+        where: { id: target.id },
+        data: { passwordHash, failedAttempts: 0, lockedUntil: null },
+      });
+      await revokeSessions(tx, target.id);
+      await recordAudit(tx, actor, "employee.reset", `Password reset for ${target.name} (@${target.username})`);
       return target.username;
     });
     // A reset is the sanctioned way out of a lockout, so the in-memory attempt counter goes too.

@@ -1,6 +1,7 @@
 "use server";
 
-import { mutate, recordAudit } from "../db";
+import { recordAudit } from "../db";
+import { prisma } from "../prisma";
 import { MAX_UPLOAD_BYTES, saveUpload } from "../uploads";
 import { ActionError, authorize, run, type ActionResult } from "./helpers";
 
@@ -29,8 +30,8 @@ export async function uploadImageAction(
     const saved = await saveUpload(buffer).catch(() => null);
     if (!saved) throw new ActionError("That file is not a PNG, JPEG, WEBP or GIF image.");
 
-    await mutate((db) =>
-      recordAudit(db, user, "image.upload", `${purpose} · ${saved.path} · ${Math.ceil(buffer.length / 1024)}KB`),
+    await prisma.$transaction((tx) =>
+      recordAudit(tx, user, "image.upload", `${purpose} · ${saved.path} · ${Math.ceil(buffer.length / 1024)}KB`),
     );
     return { ok: true, path: saved.path };
   });

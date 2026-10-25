@@ -1,10 +1,12 @@
 "use server";
 
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { ASSIGNABLE_CATEGORIES } from "@/data/menu";
 import { round2 } from "@/lib/format";
-import type { MenuItem, OptionGroup, Pricing } from "@/lib/types";
-import { mutate, recordAudit } from "../db";
+import type { DealComponent, MenuItem, OptionGroup, Pricing } from "@/lib/types";
+import { recordAudit } from "../db";
+import { prisma } from "../prisma";
 import { randomId } from "../security";
 import {
   ActionError,
@@ -63,6 +65,8 @@ function buildOptionGroups(groups: z.output<typeof optionGroupsInput>): OptionGr
   }));
 }
 
+const asJson = (value: unknown) => value as unknown as Prisma.InputJsonValue;
+
 const menuItemSchema = z.object({
   name: requiredText(2, 60, "Name"),
   description: cleanText(160, "Description"),
@@ -102,12 +106,28 @@ export async function createMenuItemAction(
       optionGroups: buildOptionGroups(data.optionGroups),
     };
 
-    await mutate((db) => {
-      if (db.menuItems.some((entry) => entry.name.toLowerCase() === item.name.toLowerCase())) {
-        throw new ActionError("A menu item with that name already exists.");
-      }
-      db.menuItems.push(item);
-      recordAudit(db, user, "menu.create", `${item.name} · ${item.price.toFixed(2)}`);
+    await prisma.$transaction(async (tx) => {
+      const duplicate = await tx.menuItem.findFirst({
+        where: { name: { equals: item.name, mode: "insensitive" } },
+      });
+      if (duplicate) throw new ActionError("A menu item with that name already exists.");
+      await tx.menuItem.create({
+        data: {
+          id: item.id,
+          name: item.name,
+          description: item.description,
+          price: item.price,
+          categoryId: item.categoryId,
+          image: item.image,
+          ingredients: item.ingredients,
+          prepMinutes: item.prepMinutes,
+          available: item.available,
+          tags: item.tags,
+          popular: item.popular ?? false,
+          optionGroups: asJson(item.optionGroups),
+        },
+      });
+      await recordAudit(tx, user, "menu.create", `${item.name} · ${item.price.toFixed(2)}`);
     });
     return { ok: true, id: item.id };
   });
@@ -133,16 +153,19 @@ export async function updateMenuItemAction(
   return run(async () => {
     const user = await authorize("menu.manage");
     const data = parse(updateSchema, input);
-    await mutate((db) => {
-      const item = db.menuItems.find((entry) => entry.id === data.id);
+    await prisma.$transaction(async (tx) => {
+      const item = await tx.menuItem.findUnique({ where: { id: data.id } });
       if (!item) throw new ActionError("Menu item not found.");
       const originalName = item.name;
+      const updates: Prisma.MenuItemUpdateInput = {};
+
       if (data.name !== undefined && data.name !== item.name) {
-        if (db.menuItems.some((entry) => entry.id !== item.id && entry.name.toLowerCase() === data.name!.toLowerCase())) {
-          throw new ActionError("A menu item with that name already exists.");
-        }
-        recordAudit(db, user, "menu.rename", `${item.name} renamed to ${data.name}`);
-        item.name = data.name;
+        const duplicate = await tx.menuItem.findFirst({
+          where: { id: { not: item.id }, name: { equals: data.name, mode: "insensitive" } },
+        });
+        if (duplicate) throw new ActionError("A menu item with that name already exists.");
+        await recordAudit(tx, user, "menu.rename", `${item.name} renamed to ${data.name}`);
+        updates.name = data.name;
       }
       const nextTags = data.tags
         ?.split(",")
@@ -152,28 +175,31 @@ export async function updateMenuItemAction(
       const detailsChanged =
         (data.description !== undefined && data.description !== item.description) ||
         (data.categoryId !== undefined && data.categoryId !== item.categoryId) ||
-        (data.ingredients !== undefined && data.ingredients !== (item.ingredients ?? null)) ||
+        (data.ingredients !== undefined && data.ingredients !== item.ingredients) ||
         (data.prepMinutes !== undefined && data.prepMinutes !== item.prepMinutes) ||
         (nextTags !== undefined && nextTags.join(",") !== item.tags.join(",")) ||
         data.optionGroups !== undefined;
-      if (data.description !== undefined) item.description = data.description;
-      if (data.categoryId !== undefined) item.categoryId = data.categoryId;
-      if (data.ingredients !== undefined) item.ingredients = data.ingredients;
-      if (data.prepMinutes !== undefined) item.prepMinutes = data.prepMinutes;
-      if (nextTags !== undefined) item.tags = nextTags;
-      if (data.optionGroups !== undefined) item.optionGroups = buildOptionGroups(data.optionGroups);
-      if (detailsChanged) recordAudit(db, user, "menu.update", `${originalName}: details updated`);
+      if (data.description !== undefined) updates.description = data.description;
+      if (data.categoryId !== undefined) updates.categoryId = data.categoryId;
+      if (data.ingredients !== undefined) updates.ingredients = data.ingredients;
+      if (data.prepMinutes !== undefined) updates.prepMinutes = data.prepMinutes;
+      if (nextTags !== undefined) updates.tags = { set: nextTags };
+      if (data.optionGroups !== undefined) updates.optionGroups = asJson(buildOptionGroups(data.optionGroups));
+      if (detailsChanged) await recordAudit(tx, user, "menu.update", `${originalName}: details updated`);
       if (data.price !== undefined && round2(data.price) !== item.price) {
-        recordAudit(db, user, "menu.price", `${item.name}: ${item.price.toFixed(2)} → ${round2(data.price).toFixed(2)}`);
-        item.price = round2(data.price);
+        await recordAudit(tx, user, "menu.price", `${item.name}: ${item.price.toFixed(2)} → ${round2(data.price).toFixed(2)}`);
+        updates.price = round2(data.price);
       }
       if (data.available !== undefined && data.available !== item.available) {
-        item.available = data.available;
-        recordAudit(db, user, "menu.availability", `${item.name} → ${data.available ? "available" : "sold out"}`);
+        updates.available = data.available;
+        await recordAudit(tx, user, "menu.availability", `${item.name} → ${data.available ? "available" : "sold out"}`);
       }
       if (data.image !== undefined && data.image !== item.image) {
-        item.image = data.image;
-        recordAudit(db, user, "menu.image", `${item.name} image ${data.image ? "updated" : "cleared"}`);
+        updates.image = data.image;
+        await recordAudit(tx, user, "menu.image", `${item.name} image ${data.image ? "updated" : "cleared"}`);
+      }
+      if (Object.keys(updates).length > 0) {
+        await tx.menuItem.update({ where: { id: item.id }, data: updates });
       }
     });
     return { ok: true };
@@ -183,13 +209,16 @@ export async function updateMenuItemAction(
 export async function deleteMenuItemAction(id: string): Promise<ActionResult> {
   return run(async () => {
     const user = await authorize("menu.manage");
-    await mutate((db) => {
-      const item = db.menuItems.find((entry) => entry.id === String(id));
+    await prisma.$transaction(async (tx) => {
+      const item = await tx.menuItem.findUnique({ where: { id: String(id) } });
       if (!item) throw new ActionError("Menu item not found.");
-      const deal = db.deals.find((entry) => entry.items.some((part) => part.itemId === item.id));
-      if (deal) throw new ActionError(`Remove ${item.name} from the "${deal.name}" deal first.`);
-      db.menuItems = db.menuItems.filter((entry) => entry.id !== item.id);
-      recordAudit(db, user, "menu.delete", item.name);
+      const deals = await tx.deal.findMany({ select: { id: true, name: true, items: true } });
+      const blocking = deals.find((entry) =>
+        (entry.items as unknown as DealComponent[]).some((part) => part.itemId === item.id),
+      );
+      if (blocking) throw new ActionError(`Remove ${item.name} from the "${blocking.name}" deal first.`);
+      await tx.menuItem.delete({ where: { id: item.id } });
+      await recordAudit(tx, user, "menu.delete", item.name);
     });
     return { ok: true };
   });
@@ -212,33 +241,35 @@ const dealSchema = z.object({
   optionGroups: optionGroupsInput,
 });
 
+async function assertItemsExist(tx: Prisma.TransactionClient, items: z.output<typeof dealPartsSchema>) {
+  const uniqueIds = [...new Set(items.map((part) => part.itemId))];
+  const found = await tx.menuItem.findMany({ where: { id: { in: uniqueIds } }, select: { id: true } });
+  if (found.length !== uniqueIds.length) throw new ActionError("A selected item no longer exists.");
+}
+
 export async function createDealAction(input: z.input<typeof dealSchema>): Promise<ActionResult> {
   return run(async () => {
     const user = await authorize("deals.manage");
     const data = parse(dealSchema, input);
-    await mutate((db) => {
-      for (const part of data.items) {
-        if (!db.menuItems.some((item) => item.id === part.itemId)) {
-          throw new ActionError("A selected item no longer exists.");
-        }
-      }
-      if (db.deals.some((deal) => deal.name.toLowerCase() === data.name.toLowerCase())) {
-        throw new ActionError("A deal with that name already exists.");
-      }
-      db.deals.push({
-        id: randomId("deal"),
-        name: data.name,
-        description: data.description,
-        price: round2(data.price),
-        items: data.items,
-        image: data.image,
-        ingredients: data.ingredients,
-        optionGroups: buildOptionGroups(data.optionGroups),
-        active: true,
-        createdAt: new Date().toISOString(),
-        createdBy: user.id,
+    await prisma.$transaction(async (tx) => {
+      await assertItemsExist(tx, data.items);
+      const duplicate = await tx.deal.findFirst({ where: { name: { equals: data.name, mode: "insensitive" } } });
+      if (duplicate) throw new ActionError("A deal with that name already exists.");
+      await tx.deal.create({
+        data: {
+          id: randomId("deal"),
+          name: data.name,
+          description: data.description,
+          price: round2(data.price),
+          items: asJson(data.items),
+          image: data.image,
+          ingredients: data.ingredients,
+          optionGroups: asJson(buildOptionGroups(data.optionGroups)),
+          active: true,
+          createdBy: user.id,
+        },
       });
-      recordAudit(db, user, "deal.create", `${data.name} · ${round2(data.price).toFixed(2)}`);
+      await recordAudit(tx, user, "deal.create", `${data.name} · ${round2(data.price).toFixed(2)}`);
     });
     return { ok: true };
   });
@@ -259,41 +290,41 @@ export async function updateDealAction(input: z.input<typeof dealUpdateSchema>):
   return run(async () => {
     const user = await authorize("deals.manage");
     const data = parse(dealUpdateSchema, input);
-    await mutate((db) => {
-      const deal = db.deals.find((entry) => entry.id === data.id);
+    await prisma.$transaction(async (tx) => {
+      const deal = await tx.deal.findUnique({ where: { id: data.id } });
       if (!deal) throw new ActionError("Deal not found.");
-      if (data.items !== undefined) {
-        for (const part of data.items) {
-          if (!db.menuItems.some((item) => item.id === part.itemId)) {
-            throw new ActionError("A selected item no longer exists.");
-          }
-        }
-      }
+      if (data.items !== undefined) await assertItemsExist(tx, data.items);
+
       const originalName = deal.name;
+      const updates: Prisma.DealUpdateInput = {};
       if (data.name !== undefined && data.name !== deal.name) {
-        if (db.deals.some((entry) => entry.id !== deal.id && entry.name.toLowerCase() === data.name!.toLowerCase())) {
-          throw new ActionError("A deal with that name already exists.");
-        }
-        recordAudit(db, user, "deal.rename", `${deal.name} renamed to ${data.name}`);
-        deal.name = data.name;
+        const duplicate = await tx.deal.findFirst({
+          where: { id: { not: deal.id }, name: { equals: data.name, mode: "insensitive" } },
+        });
+        if (duplicate) throw new ActionError("A deal with that name already exists.");
+        await recordAudit(tx, user, "deal.rename", `${deal.name} renamed to ${data.name}`);
+        updates.name = data.name;
       }
       const detailsChanged =
         (data.description !== undefined && data.description !== deal.description) ||
         (data.ingredients !== undefined && data.ingredients !== deal.ingredients) ||
         (data.items !== undefined && JSON.stringify(data.items) !== JSON.stringify(deal.items)) ||
         data.optionGroups !== undefined;
-      if (data.description !== undefined) deal.description = data.description;
-      if (data.ingredients !== undefined) deal.ingredients = data.ingredients;
-      if (data.items !== undefined) deal.items = data.items;
-      if (data.optionGroups !== undefined) deal.optionGroups = buildOptionGroups(data.optionGroups);
-      if (detailsChanged) recordAudit(db, user, "deal.update", `${originalName}: details updated`);
+      if (data.description !== undefined) updates.description = data.description;
+      if (data.ingredients !== undefined) updates.ingredients = data.ingredients;
+      if (data.items !== undefined) updates.items = asJson(data.items);
+      if (data.optionGroups !== undefined) updates.optionGroups = asJson(buildOptionGroups(data.optionGroups));
+      if (detailsChanged) await recordAudit(tx, user, "deal.update", `${originalName}: details updated`);
       if (data.price !== undefined && round2(data.price) !== deal.price) {
-        recordAudit(db, user, "deal.price", `${deal.name}: ${deal.price.toFixed(2)} → ${round2(data.price).toFixed(2)}`);
-        deal.price = round2(data.price);
+        await recordAudit(tx, user, "deal.price", `${deal.name}: ${deal.price.toFixed(2)} → ${round2(data.price).toFixed(2)}`);
+        updates.price = round2(data.price);
       }
       if (data.image !== undefined && data.image !== deal.image) {
-        deal.image = data.image;
-        recordAudit(db, user, "deal.image", `${deal.name} image ${data.image ? "updated" : "cleared"}`);
+        updates.image = data.image;
+        await recordAudit(tx, user, "deal.image", `${deal.name} image ${data.image ? "updated" : "cleared"}`);
+      }
+      if (Object.keys(updates).length > 0) {
+        await tx.deal.update({ where: { id: deal.id }, data: updates });
       }
     });
     return { ok: true };
@@ -308,11 +339,11 @@ export async function updateDealImageAction(
   return run(async () => {
     const user = await authorize("deals.manage");
     const data = parse(dealImageSchema, input);
-    await mutate((db) => {
-      const deal = db.deals.find((entry) => entry.id === data.id);
+    await prisma.$transaction(async (tx) => {
+      const deal = await tx.deal.findUnique({ where: { id: data.id } });
       if (!deal) throw new ActionError("Deal not found.");
-      deal.image = data.image;
-      recordAudit(db, user, "deal.image", `${deal.name} image ${data.image ? "updated" : "cleared"}`);
+      await tx.deal.update({ where: { id: deal.id }, data: { image: data.image } });
+      await recordAudit(tx, user, "deal.image", `${deal.name} image ${data.image ? "updated" : "cleared"}`);
     });
     return { ok: true };
   });
@@ -321,11 +352,12 @@ export async function updateDealImageAction(
 export async function setDealActiveAction(id: string, active: boolean): Promise<ActionResult> {
   return run(async () => {
     const user = await authorize("deals.manage");
-    await mutate((db) => {
-      const deal = db.deals.find((entry) => entry.id === String(id));
+    await prisma.$transaction(async (tx) => {
+      const deal = await tx.deal.findUnique({ where: { id: String(id) } });
       if (!deal) throw new ActionError("Deal not found.");
-      deal.active = Boolean(active);
-      recordAudit(db, user, "deal.toggle", `${deal.name} → ${deal.active ? "active" : "paused"}`);
+      const next = Boolean(active);
+      await tx.deal.update({ where: { id: deal.id }, data: { active: next } });
+      await recordAudit(tx, user, "deal.toggle", `${deal.name} → ${next ? "active" : "paused"}`);
     });
     return { ok: true };
   });
@@ -334,11 +366,11 @@ export async function setDealActiveAction(id: string, active: boolean): Promise<
 export async function deleteDealAction(id: string): Promise<ActionResult> {
   return run(async () => {
     const user = await authorize("deals.manage");
-    await mutate((db) => {
-      const deal = db.deals.find((entry) => entry.id === String(id));
+    await prisma.$transaction(async (tx) => {
+      const deal = await tx.deal.findUnique({ where: { id: String(id) } });
       if (!deal) throw new ActionError("Deal not found.");
-      db.deals = db.deals.filter((entry) => entry.id !== deal.id);
-      recordAudit(db, user, "deal.delete", deal.name);
+      await tx.deal.delete({ where: { id: deal.id } });
+      await recordAudit(tx, user, "deal.delete", deal.name);
     });
     return { ok: true };
   });
@@ -367,10 +399,10 @@ export async function updatePricingAction(
       serviceChargeAppliesTo: [...new Set(data.serviceChargeAppliesTo)],
       parcelFee: round2(data.parcelFee),
     };
-    await mutate((db) => {
-      db.settings.pricing = next;
-      recordAudit(
-        db,
+    await prisma.$transaction(async (tx) => {
+      await tx.settings.update({ where: { id: "singleton" }, data: { pricing: asJson(next) } });
+      await recordAudit(
+        tx,
         user,
         "pricing.update",
         `GST cash ${next.taxRateCash}% · card ${next.taxRateCard}% · service ${next.serviceChargeRate}% · parcel ${next.parcelFee}`,
