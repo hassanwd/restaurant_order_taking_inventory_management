@@ -28,7 +28,14 @@ export async function uploadImageAction(
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const saved = await saveUpload(buffer).catch(() => null);
-    if (!saved) throw new ActionError("That file is not a PNG, JPEG, WEBP or GIF image.");
+    if (!saved) {
+      // TEMPORARY diagnostic — remove once the Vercel-only upload failure is root-caused.
+      throw new ActionError(
+        `DEBUG not sniffed: file.size=${file.size} file.type=${file.type} file.name=${file.name} ` +
+          `buffer.length=${buffer.length} head=${buffer.subarray(0, 16).toString("hex")} ` +
+          `tail=${buffer.subarray(-16).toString("hex")}`,
+      );
+    }
 
     await prisma.$transaction((tx) =>
       recordAudit(tx, user, "image.upload", `${purpose} · ${saved.path} · ${Math.ceil(buffer.length / 1024)}KB`),
