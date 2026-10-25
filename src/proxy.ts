@@ -66,6 +66,13 @@ export const config = {
       missing: [
         { type: "header", key: "next-router-prefetch" },
         { type: "header", key: "purpose", value: "prefetch" },
+        // Every Server Action called imperatively (uploadImageAction, placeOrderAction, etc.)
+        // sends this header. Proxy buffers/clones the whole body to let both itself and the
+        // route read it, which corrupts binary payloads like an uploaded photo — and gains
+        // nothing here anyway, since every action independently re-checks the session itself
+        // (see the file-level comment above). Only the plain <form action={loginAction}> POST,
+        // which carries no binary data, still goes through proxy.
+        { type: "header", key: "next-action" },
       ],
     },
   ],
