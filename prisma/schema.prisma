@@ -3,8 +3,13 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // The app's normal queries go through the pooled connection (PgBouncer), which handles the
+  // many short-lived connections a serverless deployment opens. Running schema migrations through
+  // that same pooler can fail — DDL and Prisma's migration locking need a direct connection, so
+  // `directUrl` points `migrate deploy`/`migrate dev` at the unpooled one instead.
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 /// Employee accounts. `role`/order-type/status fields across this schema are kept as plain
