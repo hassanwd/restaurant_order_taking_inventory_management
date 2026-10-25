@@ -53,7 +53,7 @@ const STATUS_FILTERS_WITH_READY: OrderStatus[] = [
 const MONITOR_STATUS_FILTERS: OrderStatus[] = ["pending", "preparing"];
 
 /** A Super Admin only ever sees finished orders (see `roleSeesOrder`), so only these filters apply. */
-const SUPER_ADMIN_STATUS_FILTERS: OrderStatus[] = ["completed", "cancelled"];
+const SUPER_ADMIN_STATUS_FILTERS: OrderStatus[] = ["completed", "cancelled", "returned"];
 
 function statusFiltersFor(role: Role, monitor: boolean): OrderStatus[] {
   if (monitor) return MONITOR_STATUS_FILTERS;

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronRight, CircleX, ReceiptText, ShieldAlert, Wallet } from "lucide-react";
+import { ChevronRight, CircleX, ReceiptText, ShieldAlert, Undo2, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Card, GreetingBanner, ItemImage, SectionTitle, StatusBadge } from "@/components/ui/primitives";
 import { currency, formatTime, ORDER_TYPE_LABEL } from "@/lib/format";
@@ -100,6 +100,14 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
             value={String(stats.cancelledToday)}
             sub="Called-off orders"
             icon={CircleX}
+          />
+        ) : null}
+        {seesAll ? (
+          <Stat
+            label="Returned today"
+            value={String(stats.returnedToday)}
+            sub="Refunded orders"
+            icon={Undo2}
           />
         ) : null}
       </section>

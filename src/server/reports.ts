@@ -222,7 +222,7 @@ function buildBillingReport(all: Order[], range: Range): BillingReport {
  */
 async function roleOrders(role: Role): Promise<Order[]> {
   const rows = await prisma.order.findMany({
-    where: role === "super_admin" ? { status: { in: ["completed", "cancelled"] } } : {},
+    where: role === "super_admin" ? { status: { in: ["completed", "cancelled", "returned"] } } : {},
     orderBy: { createdAt: "desc" },
   });
   return rows.map(mapOrder).filter((order) => roleSeesOrder(role, order));

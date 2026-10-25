@@ -40,7 +40,7 @@ export function orderVisibilityWhere(user: SessionUser): Prisma.OrderWhereInput 
     where.createdById = user.id;
   }
   if (user.role === "super_admin") {
-    where.status = { in: ["completed", "cancelled"] };
+    where.status = { in: ["completed", "cancelled", "returned"] };
   }
   return where;
 }
@@ -155,6 +155,7 @@ export async function getOpenOrderCount(user: SessionUser) {
 export interface DashboardStats {
   ordersToday: number;
   cancelledToday: number;
+  returnedToday: number;
   revenueToday: number;
   openOrders: number;
   byStatus: Record<string, number>;
@@ -207,6 +208,7 @@ export async function getDashboardStats(user: SessionUser): Promise<DashboardSta
   return {
     ordersToday: orders.length,
     cancelledToday: orders.filter((order) => order.status === "cancelled").length,
+    returnedToday: orders.filter((order) => order.status === "returned").length,
     revenueToday: round2(revenueToday),
     openOrders,
     byStatus,

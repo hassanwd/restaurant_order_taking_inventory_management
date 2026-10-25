@@ -4,11 +4,14 @@ export type OrderFilter = OrderStatus | "all";
 export type OrderTypeFilter = OrderType | "all";
 
 /**
- * A Super Admin reviews finished business only: completed and cancelled orders. Every other role sees
- * orders in any status (subject to the own / all scoping applied elsewhere).
+ * A Super Admin reviews finished business only: completed, cancelled and returned orders. Every
+ * other role sees orders in any status (subject to the own / all scoping applied elsewhere).
  */
 export const roleSeesOrder = (role: Role, order: Order) =>
-  role !== "super_admin" || order.status === "completed" || order.status === "cancelled";
+  role !== "super_admin" ||
+  order.status === "completed" ||
+  order.status === "cancelled" ||
+  order.status === "returned";
 
 /** Pure list filtering, shared by the store selector and the orders screen. */
 export function filterOrders(
