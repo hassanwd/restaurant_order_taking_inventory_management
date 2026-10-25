@@ -23,7 +23,8 @@ function contentSecurityPolicy(nonce: string) {
     dev ? "style-src 'self' 'unsafe-inline'" : `style-src 'self' 'nonce-${nonce}'`,
     // React sets a few inline style attributes (receipt barcode widths).
     "style-src-attr 'unsafe-inline'",
-    "img-src 'self' blob: data:",
+    // Uploaded menu/deal photos are served from Vercel Blob's public storage domain.
+    "img-src 'self' blob: data: https://*.public.blob.vercel-storage.com",
     "font-src 'self'",
     "connect-src 'self'",
     "object-src 'none'",
