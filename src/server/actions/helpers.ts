@@ -4,7 +4,7 @@ import { z } from "zod";
 import { can, type Permission } from "@/lib/permissions";
 import type { SessionUser } from "@/lib/types";
 import { getCurrentUser } from "../session";
-import { UPLOAD_PATH_PATTERN } from "../uploads";
+import { UPLOAD_URL_PATTERN } from "../uploads";
 
 /** Raised for anything the user should be told about; everything else becomes a generic failure. */
 export class ActionError extends Error {
@@ -90,7 +90,7 @@ export const imagePath = (label: string) =>
   z
     .string({ error: `${label} must be text.` })
     .transform((value) => value.trim())
-    .refine((value) => value === "" || UPLOAD_PATH_PATTERN.test(value), {
+    .refine((value) => value === "" || UPLOAD_URL_PATTERN.test(value), {
       message: `${label} must come from an uploaded photo.`,
     })
     .transform((value): string | null => (value === "" ? null : value));

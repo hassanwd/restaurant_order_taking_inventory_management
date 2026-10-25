@@ -2,7 +2,7 @@
 
 import { recordAudit } from "../db";
 import { prisma } from "../prisma";
-import { MAX_UPLOAD_BYTES, saveUpload } from "../uploads";
+import { MAX_UPLOAD_BYTES, saveUpload, UnsupportedImageError } from "../uploads";
 import { ActionError, authorize, run, type ActionResult } from "./helpers";
 
 export type UploadPurpose = "item" | "deal";
@@ -27,17 +27,15 @@ export async function uploadImageAction(
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    let saved: Awaited<ReturnType<typeof saveUpload>> | null = null;
-    let saveError: unknown = null;
+    let saved: Awaited<ReturnType<typeof saveUpload>>;
     try {
       saved = await saveUpload(buffer);
     } catch (error) {
-      saveError = error;
-    }
-    if (!saved) {
-      // TEMPORARY diagnostic — remove once the Vercel-only upload failure is root-caused.
-      const message = saveError instanceof Error ? `${saveError.name}: ${saveError.message}` : String(saveError);
-      throw new ActionError(`DEBUG saveUpload threw: ${message}`);
+      if (error instanceof UnsupportedImageError) {
+        throw new ActionError("That file is not a PNG, JPEG, WEBP or GIF image.");
+      }
+      console.error("[ots] photo upload failed", error);
+      throw new ActionError("Could not save that photo right now. Please try again.");
     }
 
     await prisma.$transaction((tx) =>
