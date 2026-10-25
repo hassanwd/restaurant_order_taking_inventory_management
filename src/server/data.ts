@@ -5,6 +5,7 @@ import { TABLES } from "@/data/tables";
 import { CATEGORIES } from "@/data/menu";
 import { can } from "@/lib/permissions";
 import { round2 } from "@/lib/format";
+import { roleSeesOrder } from "@/lib/orders";
 import type {
   Category,
   Deal,
@@ -43,13 +44,14 @@ export function dealToMenuItem(deal: Deal, db: Database): MenuItem {
     description: deal.description || summary,
     price: deal.price,
     categoryId: "deals",
-    icon: "🎁",
+    image: deal.image,
+    ingredients: deal.ingredients,
     prepMinutes: Math.max(1, ...components.map(({ item }) => item?.prepMinutes ?? 1)),
     // A deal is sellable only while it is active and everything in it can still be sold.
     available: deal.active && components.every(({ item }) => item?.available),
     tags: ["Deal"],
     popular: false,
-    optionGroups: [],
+    optionGroups: deal.optionGroups,
     kind: "deal",
   };
 }
@@ -105,6 +107,7 @@ export function visibleOrders(db: Database, user: SessionUser): Order[] {
   const own = can(user.role, "order.view.own");
   return db.orders
     .filter((order) => (all ? true : own && order.createdById === user.id))
+    .filter((order) => roleSeesOrder(user.role, order))
     .sort(newestFirst);
 }
 
@@ -123,12 +126,11 @@ export async function getOpenOrderCount(user: SessionUser) {
 
 export interface DashboardStats {
   ordersToday: number;
-  returnedToday: number;
+  cancelledToday: number;
   revenueToday: number;
-  averageTicket: number;
   openOrders: number;
   byStatus: Record<string, number>;
-  topItems: { itemId: string; name: string; icon: string; quantity: number; revenue: number }[];
+  topItems: { itemId: string; name: string; image: string | null; quantity: number; revenue: number }[];
   tablesOccupied: number;
   tablesTotal: number;
 }
@@ -156,7 +158,7 @@ export async function getDashboardStats(user: SessionUser): Promise<DashboardSta
       const current = tally.get(line.itemId) ?? {
         itemId: line.itemId,
         name: line.name,
-        icon: line.icon,
+        image: line.image,
         quantity: 0,
         revenue: 0,
       };
@@ -169,24 +171,14 @@ export async function getDashboardStats(user: SessionUser): Promise<DashboardSta
 
   return {
     ordersToday: orders.length,
-    returnedToday: orders.filter((order) => order.status === "returned").length,
+    cancelledToday: orders.filter((order) => order.status === "cancelled").length,
     revenueToday: round2(revenueToday),
-    averageTicket: billable.length ? round2(revenueToday / billable.length) : 0,
     openOrders: allOrders.filter(isOpen).length,
     byStatus,
     topItems: [...tally.values()].sort((a, b) => b.quantity - a.quantity).slice(0, 5),
     tablesOccupied: tables.filter((table) => table.status === "occupied").length,
     tablesTotal: tables.length,
   };
-}
-
-export async function getInventory() {
-  const db = await getDb();
-  return [...db.inventory].sort((a, b) => a.name.localeCompare(b.name));
-}
-
-export async function getMovements(limit = 100) {
-  return (await getDb()).movements.slice(0, limit);
 }
 
 /** A session counts as "signed in now" if it was used within this window. */
@@ -221,6 +213,3 @@ export async function getEmployees(): Promise<EmployeeView[]> {
   });
 }
 
-export async function getAuditLog(limit = 60) {
-  return (await getDb()).audit.slice(0, limit);
-}

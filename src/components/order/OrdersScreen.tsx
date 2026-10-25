@@ -38,8 +38,28 @@ const STATUS_FILTERS: OrderStatus[] = [
   "returned",
 ];
 
+/** Roles without Monitor also work Ready orders from this list, so they get a Ready filter. */
+const STATUS_FILTERS_WITH_READY: OrderStatus[] = [
+  "pending",
+  "preparing",
+  "ready",
+  "delivery",
+  "completed",
+  "cancelled",
+  "returned",
+];
+
 /** Monitor only deals with orders still in progress, so its dropdown has just these. */
 const MONITOR_STATUS_FILTERS: OrderStatus[] = ["pending", "preparing"];
+
+/** A Super Admin only ever sees finished orders (see `roleSeesOrder`), so only these filters apply. */
+const SUPER_ADMIN_STATUS_FILTERS: OrderStatus[] = ["completed", "cancelled"];
+
+function statusFiltersFor(role: Role, monitor: boolean): OrderStatus[] {
+  if (monitor) return MONITOR_STATUS_FILTERS;
+  if (role === "super_admin") return SUPER_ADMIN_STATUS_FILTERS;
+  return can(role, "monitor.view") ? STATUS_FILTERS : STATUS_FILTERS_WITH_READY;
+}
 
 /** Rows-per-page choices for the Orders list. Monitor is not paginated — it shows every order in the tab. */
 const PAGE_SIZES = [10, 20, 50, 100];
@@ -94,7 +114,9 @@ function ReadyControl({
  * The one-click "next step" for a row of the Orders list.
  *
  * - Pending → Preparing → Ready: a button, one step at a time.
- * - Ready: no button here — Monitor › Ready hands a parcel to delivery or completes the order.
+ * - Ready: with Monitor access there is no button here — Monitor › Ready hands a parcel to delivery or
+ *   completes the order. Roles without Monitor do it here instead: **Delivery** for a parcel, **Complete**
+ *   for the rest (an unpaid one is settled from its details page first).
  * - Out for delivery (parcels only): a COD parcel shows **Awaiting payment**; clicking it asks
  *   "Payment received?" and, once confirmed, the order is completed. A parcel already paid by
  *   card shows **Delivered**.
@@ -134,10 +156,25 @@ function NextStepCell({
   }
 
   if (order.status === "ready") {
+    if (can(role, "monitor.view")) {
+      return (
+        <span className="text-[11px] font-semibold text-fg-subtle">
+          {order.type === "parcel" ? "Delivery in Monitor" : "Complete in Monitor"}
+        </span>
+      );
+    }
+    if (upcoming === "completed" && !order.payment) {
+      return (
+        <Link href={`/orders/${order.id}`} className="text-xs font-semibold text-warning hover:underline">
+          Unpaid · settle in details
+        </Link>
+      );
+    }
     return (
-      <span className="text-[11px] font-semibold text-fg-subtle">
-        {order.type === "parcel" ? "Delivery in Monitor" : "Complete in Monitor"}
-      </span>
+      <Button size="sm" variant="secondary" disabled={busy} onClick={onAdvance}>
+        {busy ? "Saving…" : upcoming === "delivery" ? "Delivery" : "Complete"}
+        <ChevronsRight className="size-3.5" aria-hidden />
+      </Button>
     );
   }
 
@@ -318,7 +355,7 @@ export default function OrdersScreen({
                 aria-label="Filter by status"
                 className="lg:w-48 lg:shrink-0"
               >
-                {(["all", ...(monitor ? MONITOR_STATUS_FILTERS : STATUS_FILTERS)] as const).map((entry) => (
+                {(["all", ...statusFiltersFor(role, monitor)] as const).map((entry) => (
                   <option key={entry} value={entry}>
                     {entry === "all" ? "All" : STATUS_LABEL[entry]} ({statusCounts[entry]})
                   </option>

@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { DataTable, StatTile } from "@/components/admin/ui";
 import { buttonClass } from "@/components/ui/Button";
-import { Card, chipClass, EmptyState, KeyValue, SectionTitle, StatusBadge } from "@/components/ui/primitives";
+import { Card, chipClass, KeyValue, SectionTitle, StatusBadge } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
 import { currency, formatDateTime, ORDER_TYPE_LABEL, PAYMENT_LABEL } from "@/lib/format";
 import { buildReport, isPeriod, type Period, type Report } from "@/server/reports";
@@ -20,12 +20,11 @@ import { requirePermission } from "@/server/session";
 
 export const metadata = { title: "Reports" };
 
-type Tab = "overview" | "orders" | "billing" | "inventory";
+type Tab = "overview" | "orders" | "billing";
 const TABS: { id: Tab; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "orders", label: "Orders" },
   { id: "billing", label: "Billing" },
-  { id: "inventory", label: "Inventory" },
 ];
 const PERIODS: { id: Period; label: string }[] = [
   { id: "daily", label: "Daily" },
@@ -33,7 +32,6 @@ const PERIODS: { id: Period; label: string }[] = [
   { id: "monthly", label: "Monthly" },
 ];
 const ROW_LIMIT = 100;
-const num = (value: number) => (Math.round(value * 1000) / 1000).toString();
 
 function Overview({ report }: { report: Report }) {
   const { orders, billing, range } = report;
@@ -289,64 +287,13 @@ function BillingTab({ report }: { report: Report }) {
   );
 }
 
-function InventoryTab({ report }: { report: Report }) {
-  return (
-    <Card className="overflow-hidden">
-      <div className="border-b border-line px-5 py-4">
-        <SectionTitle
-          title="Inventory report"
-          subtitle="Opening stock + received − out − used = closing stock, for this period"
-        />
-      </div>
-      {report.inventory.length === 0 ? (
-        <div className="p-5">
-          <EmptyState icon={ReceiptText} title="No inventory items" description="Add items on the Inventory screen to see them here." />
-        </div>
-      ) : (
-        <DataTable
-          minWidth={780}
-          head={
-            <tr>
-              <th className="px-5 py-3 font-bold">Item</th>
-              <th className="px-3 py-3 text-right font-bold">Opening</th>
-              <th className="px-3 py-3 text-right font-bold">Received</th>
-              <th className="px-3 py-3 text-right font-bold">Out</th>
-              <th className="px-3 py-3 text-right font-bold">Used</th>
-              <th className="px-5 py-3 text-right font-bold">Closing</th>
-            </tr>
-          }
-        >
-          {report.inventory.map((row) => (
-            <tr key={row.itemId} className="hover:bg-surface-2">
-              <td className="px-5 py-3">
-                <p className="font-bold text-fg">{row.name}</p>
-                <p className="text-[11px] text-fg-subtle">Reorder at {num(row.reorderLevel)} {row.unit}</p>
-              </td>
-              <td className="px-3 py-3 text-right tabular-nums text-fg-muted">{num(row.opening)} {row.unit}</td>
-              <td className="px-3 py-3 text-right tabular-nums text-success">{row.received ? `+${num(row.received)}` : "—"}</td>
-              <td className="px-3 py-3 text-right tabular-nums text-warning">{row.out ? `−${num(row.out)}` : "—"}</td>
-              <td className="px-3 py-3 text-right tabular-nums text-info">{row.used ? `−${num(row.used)}` : "—"}</td>
-              <td className="px-5 py-3 text-right">
-                <span className={cn("font-bold tabular-nums", row.low ? "text-danger" : "text-fg")}>
-                  {num(row.closing)} {row.unit}
-                </span>
-                {row.low ? <span className="ml-2 rounded-full bg-danger-soft px-2 py-0.5 text-[10px] font-bold uppercase text-danger">Low</span> : null}
-              </td>
-            </tr>
-          ))}
-        </DataTable>
-      )}
-    </Card>
-  );
-}
-
 export default async function ReportsPage({ searchParams }: PageProps<"/reports">) {
-  await requirePermission("reports.view");
+  const user = await requirePermission("reports.view");
   const params = await searchParams;
 
   const period: Period = isPeriod(params.period) ? params.period : "daily";
   const tab: Tab = TABS.some((entry) => entry.id === params.tab) ? (params.tab as Tab) : "overview";
-  const report = await buildReport(period, typeof params.date === "string" ? params.date : undefined);
+  const report = await buildReport(period, typeof params.date === "string" ? params.date : undefined, user.role);
   const { range } = report;
 
   const href = (next: { period?: Period; tab?: Tab; date?: string }) =>
@@ -359,7 +306,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-fg">Reports</h2>
-          <p className="text-xs text-fg-muted">Daily, weekly and monthly view of orders, billing and stock.</p>
+          <p className="text-xs text-fg-muted">Daily, weekly and monthly view of orders and billing.</p>
         </div>
         <Link
           href={`/export/${exportKind}?period=${period}&date=${range.date}`}
@@ -433,7 +380,6 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
       {tab === "overview" ? <Overview report={report} /> : null}
       {tab === "orders" ? <OrdersTab report={report} /> : null}
       {tab === "billing" ? <BillingTab report={report} /> : null}
-      {tab === "inventory" ? <InventoryTab report={report} /> : null}
     </div>
   );
 }

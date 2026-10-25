@@ -2,13 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeft, CircleCheck, ClipboardList, Plus, Printer, ShoppingBasket, StickyNote, Truck } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ShoppingBasket, StickyNote, Truck } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/Button";
-import Modal from "@/components/ui/Modal";
-import { Card, Chip, EmptyState, Field, Input, KeyValue, SectionTitle } from "@/components/ui/primitives";
+import { Card, EmptyState, Field, Input, ItemImage, KeyValue, SectionTitle } from "@/components/ui/primitives";
 import SegmentedControl, { type SegmentOption } from "@/components/ui/SegmentedControl";
-import { cn } from "@/lib/cn";
-import { currency, lineTotal, ORDER_TYPE_LABEL, PAYMENT_LABEL, round2 } from "@/lib/format";
+import { currency, lineTotal, ORDER_TYPE_LABEL, PAYMENT_LABEL } from "@/lib/format";
 import { ORDER_TYPE_ICONS, PAYMENT_ICONS } from "@/lib/icons";
 import { can } from "@/lib/permissions";
 import { computeTotals } from "@/lib/pricing";
@@ -31,18 +29,6 @@ const PARCEL_PAYMENT_OPTIONS: SegmentOption<PayChoice>[] = [
   { value: "cod", label: "COD", icon: Truck },
   { value: "card", label: "By Card", icon: PAYMENT_ICONS.card },
 ];
-
-function cashSuggestions(total: number) {
-  const rounded = Math.ceil(total);
-  const set = new Set<number>([
-    round2(total),
-    rounded,
-    Math.ceil(total / 5) * 5,
-    Math.ceil(total / 10) * 10,
-    Math.ceil(total / 50) * 50,
-  ]);
-  return [...set].filter((value) => value >= total).sort((a, b) => a - b).slice(0, 4);
-}
 
 export default function CheckoutScreen({ tables }: { tables: DiningTable[] }) {
   const router = useRouter();
@@ -72,9 +58,7 @@ export default function CheckoutScreen({ tables }: { tables: DiningTable[] }) {
   const payOnDelivery = activeChoice === "cod";
   /** True when money is taken at this screen (everything except COD). */
   const showPayment = canSettle && !payOnDelivery;
-  const [tendered, setTendered] = useState("");
   const [submitted, setSubmitted] = useState(false);
-  const [confirmed, setConfirmed] = useState<{ id: string; total: number; paid: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // GST depends on how the bill is settled; before payment is known the cash rate is shown.
@@ -91,57 +75,8 @@ export default function CheckoutScreen({ tables }: { tables: DiningTable[] }) {
   );
 
   const table = tables.find((entry) => entry.id === cart.tableId);
-  // An empty field means "exact cash" — the common case at the counter.
-  const tenderedValue = tendered.trim() === "" ? totals.total : Number(tendered) || 0;
-  const change = round2(Math.max(0, tenderedValue - totals.total));
-  const shortfall = round2(Math.max(0, totals.total - tenderedValue));
-  const suggestions = useMemo(() => cashSuggestions(totals.total), [totals.total]);
-
-  const cashShort = showPayment && method === "cash" && shortfall > 0;
   const OrderTypeIcon = ORDER_TYPE_ICONS[cart.orderType];
   const busy = pending || submitted;
-
-  // Order is in — offer to print it (or carry on) instead of whisking the cashier away.
-  if (confirmed) {
-    return (
-      <div className="mx-auto max-w-xl p-6">
-        <Modal
-          open
-          onClose={() => router.push("/order/new")}
-          title="Order confirmed"
-          subtitle={`${confirmed.id} · ${currency(confirmed.total)}${confirmed.paid ? " · paid" : ""}`}
-          footer={
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="secondary" onClick={() => router.push(`/orders/${confirmed.id}`)}>
-                <ClipboardList className="size-4" aria-hidden />
-                View order
-              </Button>
-              <Button variant="secondary" onClick={() => router.push("/order/new")}>
-                <Plus className="size-4" aria-hidden />
-                New order
-              </Button>
-              <Button onClick={() => router.push(`/print/${confirmed.id}?placed=1`)}>
-                <Printer className="size-4" aria-hidden />
-                Print order
-              </Button>
-            </div>
-          }
-        >
-          <div className="flex items-center gap-3">
-            <span className="grid size-12 shrink-0 place-items-center rounded-xl bg-success-soft text-success">
-              <CircleCheck className="size-6" aria-hidden />
-            </span>
-            <p className="text-sm text-fg-muted">
-              {confirmed.paid
-                ? "Payment received and the order has been sent to the kitchen."
-                : "The order has been sent to the kitchen — payment is collected on delivery."}{" "}
-              Print the bill and kitchen ticket now, or start the next order.
-            </p>
-          </div>
-        </Modal>
-      </div>
-    );
-  }
 
   if (cart.lines.length === 0 && !submitted) {
     return (
@@ -158,7 +93,6 @@ export default function CheckoutScreen({ tables }: { tables: DiningTable[] }) {
 
   const place = async (settle: boolean) => {
     if (issues.length > 0 || busy) return;
-    if (settle && cashShort) return;
     setError(null);
 
     // Only *what* was ordered goes to the server — it re-reads names and prices itself.
@@ -186,12 +120,8 @@ export default function CheckoutScreen({ tables }: { tables: DiningTable[] }) {
           notes: line.notes,
           unitPrice: line.basePrice !== line.listPrice ? line.basePrice : undefined,
         })),
-        settle: settle
-          ? {
-              method,
-              amountTendered: method === "cash" ? round2(tenderedValue) : totals.total,
-            }
-          : null,
+        // Cash is always collected as the exact total — there is no tendered-amount/change flow.
+        settle: settle ? { method, amountTendered: totals.total } : null,
       }),
     );
 
@@ -201,8 +131,8 @@ export default function CheckoutScreen({ tables }: { tables: DiningTable[] }) {
     }
 
     setSubmitted(true);
-    setConfirmed({ id: result.orderId, total: totals.total, paid: settle });
     dispatch(resetCart());
+    router.push(`/print/${result.orderId}?placed=1`);
   };
 
   return (
@@ -250,9 +180,7 @@ export default function CheckoutScreen({ tables }: { tables: DiningTable[] }) {
             <ul className="divide-y divide-line">
               {cart.lines.map((line) => (
                 <li key={line.lineId} className="flex items-start gap-3 px-5 py-3">
-                  <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-3 text-base" aria-hidden>
-                    {line.icon}
-                  </span>
+                  <ItemImage src={line.image} alt={line.name} className="size-9 rounded-lg" />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-bold text-fg">
                       <span className="text-accent">{line.quantity}×</span> {line.name}
@@ -288,11 +216,11 @@ export default function CheckoutScreen({ tables }: { tables: DiningTable[] }) {
               subtitle="Printed on the bill"
             />
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <Field label="Name" required={cart.orderType === "parcel"}>
+              <Field label="Name" required>
                 <Input
                   value={cart.customer.name}
                   maxLength={80}
-                  placeholder="Walk-in Guest"
+                  placeholder="e.g. John Smith"
                   onChange={(event) =>
                     dispatch(setCustomerField({ field: "name", value: event.target.value }))
                   }
@@ -361,46 +289,11 @@ export default function CheckoutScreen({ tables }: { tables: DiningTable[] }) {
                 </p>
               ) : null}
 
-              {payOnDelivery ? null : method === "cash" ? (
-                <div className="mt-5 space-y-3">
-                  <Field label="Amount tendered" hint="Leave blank for the exact amount">
-                    <Input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      inputMode="decimal"
-                      value={tendered}
-                      placeholder={currency(totals.total).replace(/^\$/, "")}
-                      onChange={(event) => setTendered(event.target.value)}
-                    />
-                  </Field>
-                  <div className="flex flex-wrap gap-2">
-                    {suggestions.map((value) => (
-                      <Chip key={value} onClick={() => setTendered(String(value))}>
-                        {currency(value)}
-                      </Chip>
-                    ))}
-                  </div>
-                  <div
-                    className={cn(
-                      "rounded-xl px-3 py-2.5",
-                      cashShort ? "bg-danger-soft" : "bg-success-soft",
-                    )}
-                  >
-                    <KeyValue
-                      label={cashShort ? "Still due" : "Change due"}
-                      value={
-                        <span className={cashShort ? "text-danger" : "text-success"}>
-                          {currency(cashShort ? shortfall : change)}
-                        </span>
-                      }
-                      strong
-                    />
-                  </div>
-                </div>
-              ) : (
+              {payOnDelivery ? null : (
                 <p className="mt-5 rounded-xl bg-info-soft px-3 py-2.5 text-xs font-medium text-info">
-                  Present the terminal to the guest and confirm once approved.
+                  {method === "cash"
+                    ? "Collecting the exact total in cash."
+                    : "Present the terminal to the guest and confirm once approved."}
                 </p>
               )}
             </Card>
@@ -459,7 +352,7 @@ export default function CheckoutScreen({ tables }: { tables: DiningTable[] }) {
                 size="lg"
                 fullWidth
                 className="mt-4"
-                disabled={issues.length > 0 || busy || cashShort}
+                disabled={issues.length > 0 || busy}
                 onClick={() => void place(true)}
               >
                 {busy ? "Placing order…" : `Pay ${currency(totals.total)} & place order`}

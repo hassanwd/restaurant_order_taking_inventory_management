@@ -8,6 +8,7 @@ import type { Role } from "./types";
 export type Permission =
   | "dashboard.view"
   | "tables.view"
+  | "monitor.view"
   | "menu.view"
   | "order.create"
   | "order.view.own"
@@ -21,19 +22,17 @@ export type Permission =
   | "discount.apply"
   | "menu.manage"
   | "deals.manage"
-  | "inventory.view"
-  | "inventory.manage"
   | "billing.view"
   | "pricing.manage"
   | "reports.view"
-  | "employees.manage"
-  | "audit.view";
+  | "employees.manage";
 
 // Workers take payment for the orders they place (dine-in and takeaway are paid before they are placed).
 const WORKER: Permission[] = [
   "menu.view",
   "order.create",
   "order.view.own",
+  "monitor.view",
   "order.advance",
   "payment.settle",
   // Calling an order off, or returning it, before it is completed — their own orders only.
@@ -41,10 +40,13 @@ const WORKER: Permission[] = [
   "order.return",
 ];
 
+// Taking orders and the live Monitor belong to the Worker persona; cashiers and above work from the
+// Orders list, so they do not inherit these.
+const WORKER_ONLY: Permission[] = ["menu.view", "order.create", "monitor.view"];
+
 const ADMIN: Permission[] = [
-  ...WORKER,
+  ...WORKER.filter((permission) => !WORKER_ONLY.includes(permission)),
   "dashboard.view",
-  "tables.view",
   "order.view.all",
   // Refunding an order after it has been completed stays with cashiers and above.
   "order.return.completed",
@@ -53,13 +55,11 @@ const ADMIN: Permission[] = [
   "discount.apply",
   "menu.manage",
   "deals.manage",
-  "inventory.view",
-  "inventory.manage",
   "billing.view",
   "pricing.manage",
 ];
 
-const SUPER_ADMIN: Permission[] = [...ADMIN, "reports.view", "employees.manage", "audit.view"];
+const SUPER_ADMIN: Permission[] = [...ADMIN, "reports.view", "employees.manage"];
 
 const GRANTS: Record<Role, ReadonlySet<Permission>> = {
   worker: new Set(WORKER),

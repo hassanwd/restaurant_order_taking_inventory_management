@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ArrowLeft, Banknote, Printer, SearchX, StickyNote, Undo2 } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/Button";
-import { Card, EmptyState, KeyValue, SectionTitle, StatusBadge } from "@/components/ui/primitives";
+import { Card, EmptyState, ItemImage, KeyValue, SectionTitle, StatusBadge } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
 import {
   currency,
@@ -69,15 +69,22 @@ export default function OrderDetail({
   const activeIndex = flow.indexOf(order.status);
   const OrderTypeIcon = ORDER_TYPE_ICONS[order.type];
 
-  // This page only moves an order up to Ready. Handing a parcel to delivery and completing an order
-  // happen on Monitor › Ready; a parcel that is out for delivery is finished from the Orders list.
+  // With Monitor access this page only moves an order up to Ready: handing a parcel to delivery and
+  // completing an order happen on Monitor › Ready, and a parcel out for delivery is finished from the
+  // Orders list. Roles without Monitor do the Ready step here too (an unpaid order is settled first).
+  const hasMonitor = can(role, "monitor.view");
+  const outForDelivery = order.status === "delivery";
   const canAdvance =
     can(role, "order.advance") &&
     upcoming !== null &&
-    upcoming !== "completed" &&
-    upcoming !== "delivery" &&
-    !closed;
-  const finishesElsewhere = can(role, "order.advance") && !closed && (upcoming === "completed" || upcoming === "delivery");
+    !closed &&
+    (hasMonitor
+      ? upcoming !== "completed" && upcoming !== "delivery"
+      : !outForDelivery && !(upcoming === "completed" && !order.payment));
+  const finishesElsewhere =
+    can(role, "order.advance") &&
+    !closed &&
+    (hasMonitor ? upcoming === "completed" || upcoming === "delivery" : outForDelivery);
   const canSettle = can(role, "payment.settle") && !order.payment && !closed;
   // Before completion: cancel or return. After completion: only roles allowed to refund it.
   const beforeCompletion = ["pending", "preparing", "ready", "delivery"].includes(order.status);
@@ -229,9 +236,7 @@ export default function OrderDetail({
           <ul className="divide-y divide-line">
             {order.lines.map((line) => (
               <li key={line.lineId} className="flex items-start gap-3 px-5 py-3.5">
-                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface-3 text-lg" aria-hidden>
-                  {line.icon}
-                </span>
+                <ItemImage src={line.image} alt={line.name} className="size-10 rounded-xl" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-bold text-fg">
                     <span className="text-accent">{line.quantity}×</span> {line.name}

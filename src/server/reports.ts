@@ -1,7 +1,8 @@
 import "server-only";
 
 import { round2 } from "@/lib/format";
-import type { InventoryMovement, Order, PaymentMethod } from "@/lib/types";
+import { roleSeesOrder } from "@/lib/orders";
+import type { Order, PaymentMethod, Role } from "@/lib/types";
 import { getDb } from "./db";
 
 export type Period = "daily" | "weekly" | "monthly";
@@ -120,27 +121,11 @@ export interface BillingReport {
   bills: Order[];
 }
 
-export interface InventoryReportRow {
-  itemId: string;
-  name: string;
-  unit: string;
-  opening: number;
-  received: number;
-  out: number;
-  used: number;
-  closing: number;
-  reorderLevel: number;
-  low: boolean;
-}
-
 export interface Report {
   range: Range;
   orders: OrdersReport;
   billing: BillingReport;
-  inventory: InventoryReportRow[];
 }
-
-const round3 = (value: number) => Math.round((value + Number.EPSILON) * 1000) / 1000;
 
 function buildOrdersReport(all: Order[], range: Range): OrdersReport {
   const placedOrders = all.filter((order) => inRange(order.createdAt, range));
@@ -229,54 +214,19 @@ function buildBillingReport(all: Order[], range: Range): BillingReport {
   };
 }
 
-const signed = (movement: InventoryMovement) =>
-  movement.type === "in" ? movement.quantity : -movement.quantity;
-
-function buildInventoryReport(
-  items: { id: string; name: string; unit: string; quantity: number; reorderLevel: number }[],
-  movements: InventoryMovement[],
-  range: Range,
-): InventoryReportRow[] {
-  return items
-    .map((item) => {
-      const mine = movements.filter((movement) => movement.itemId === item.id);
-      const within = mine.filter((movement) => inRange(movement.at, range));
-      const after = mine.filter((movement) => movement.at >= range.to);
-
-      const closing = round3(item.quantity - after.reduce((total, m) => total + signed(m), 0));
-      const received = round3(within.filter((m) => m.type === "in").reduce((t, m) => t + m.quantity, 0));
-      const out = round3(within.filter((m) => m.type === "out").reduce((t, m) => t + m.quantity, 0));
-      const used = round3(within.filter((m) => m.type === "usage").reduce((t, m) => t + m.quantity, 0));
-
-      return {
-        itemId: item.id,
-        name: item.name,
-        unit: item.unit,
-        opening: round3(closing - received + out + used),
-        received,
-        out,
-        used,
-        closing,
-        reorderLevel: item.reorderLevel,
-        low: item.quantity <= item.reorderLevel,
-      };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
-}
-
-export async function buildReport(period: Period, date?: string): Promise<Report> {
+export async function buildReport(period: Period, date: string | undefined, role: Role): Promise<Report> {
   const db = await getDb();
   const range = resolveRange(period, date);
+  const orders = db.orders.filter((order) => roleSeesOrder(role, order));
   return {
     range,
-    orders: buildOrdersReport(db.orders, range),
-    billing: buildBillingReport(db.orders, range),
-    inventory: buildInventoryReport(db.inventory, db.movements, range),
+    orders: buildOrdersReport(orders, range),
+    billing: buildBillingReport(orders, range),
   };
 }
 
 /** Sales records for the Billing screen — every bill in an arbitrary day range. */
-export async function buildBillingRange(from: string, to: string): Promise<BillingReport> {
+export async function buildBillingRange(from: string, to: string, role: Role): Promise<BillingReport> {
   const db = await getDb();
   const start = parseDay(from) ?? new Date(`${dayString(new Date())}T00:00:00Z`);
   const end = parseDay(to) ?? start;
@@ -291,5 +241,8 @@ export async function buildBillingRange(from: string, to: string): Promise<Billi
     previous: "",
     next: "",
   };
-  return buildBillingReport(db.orders, range);
+  return buildBillingReport(
+    db.orders.filter((order) => roleSeesOrder(role, order)),
+    range,
+  );
 }

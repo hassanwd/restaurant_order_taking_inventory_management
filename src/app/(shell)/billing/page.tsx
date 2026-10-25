@@ -19,7 +19,7 @@ const isDay = (value: unknown): value is string =>
 const ROW_LIMIT = 100;
 
 export default async function BillingPage({ searchParams }: PageProps<"/billing">) {
-  await requirePermission("billing.view");
+  const user = await requirePermission("billing.view");
   const params = await searchParams;
 
   const now = new Date();
@@ -27,7 +27,7 @@ export default async function BillingPage({ searchParams }: PageProps<"/billing"
   const from = isDay(params.from) ? params.from : today;
   const to = isDay(params.to) && params.to >= from ? params.to : from;
 
-  const [report, pricing] = await Promise.all([buildBillingRange(from, to), getPricing()]);
+  const [report, pricing] = await Promise.all([buildBillingRange(from, to, user.role), getPricing()]);
 
   const presets = [
     { label: "Today", from: today, to: today },

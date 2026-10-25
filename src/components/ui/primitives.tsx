@@ -1,9 +1,31 @@
-import type { LucideIcon } from "lucide-react";
+import { UtensilsCrossed, type LucideIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { OUTLET } from "@/data/settings";
 import { ORDER_TYPE_CLASS, ORDER_TYPE_LABEL, STATUS_CLASS, STATUS_LABEL } from "@/lib/format";
 import { ORDER_TYPE_ICONS, STATUS_ICONS } from "@/lib/icons";
 import type { OrderStatus, OrderType } from "@/lib/types";
+
+/** The branch/register/name greeting banner shown atop the dashboard and the worker's order screen. */
+export function GreetingBanner({ name, openOrders }: { name: string; openOrders: number }) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-line bg-linear-to-br from-brand-500 to-brand-700 p-6 text-white shadow-pop">
+      <div className="flex flex-wrap items-end justify-between gap-6">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/75">
+            {OUTLET.branch} · {OUTLET.register} · {name}
+          </p>
+          <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
+            Good service starts with a fast order.
+          </h2>
+          <p className="mt-1.5 max-w-md text-sm text-white/85">
+            {openOrders} order{openOrders === 1 ? " is" : "s are"} still open right now.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 export function Card({ className, ...props }: ComponentProps<"div">) {
   return (
@@ -147,6 +169,41 @@ export function EmptyState({
       <p className="mt-1 max-w-xs text-xs text-fg-muted">{description}</p>
       {action ? <div className="mt-4">{action}</div> : null}
     </div>
+  );
+}
+
+/**
+ * A menu item, deal or cart line's photo as a cropped, boxed thumbnail — used wherever a fixed-size
+ * tile is needed (cart lines, checkout, order detail, dashboard, admin rows). Falls back to a
+ * generic icon on a muted tile when no image is set. `className` sets the box's size and rounding;
+ * a plain `<img>` (not `next/image`) so an admin-supplied URL is fetched by the browser, never
+ * proxied through the server's image optimizer.
+ *
+ * The menu-browsing card uses its own uncropped, floating image instead — see `ItemCard` in
+ * `MenuBrowser.tsx` — since a product photo there should never be cropped into a box.
+ */
+export function ItemImage({
+  src,
+  alt,
+  icon: Icon = UtensilsCrossed,
+  iconClassName,
+  className,
+}: {
+  src: string | null | undefined;
+  alt: string;
+  icon?: LucideIcon;
+  iconClassName?: string;
+  className?: string;
+}) {
+  return (
+    <span className={cn("grid shrink-0 place-items-center overflow-hidden bg-surface-3 text-fg-subtle", className)}>
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element -- external, admin-supplied URL; see comment above.
+        <img src={src} alt={alt} className="size-full object-cover" loading="lazy" />
+      ) : (
+        <Icon className={cn("size-1/2", iconClassName)} aria-hidden />
+      )}
+    </span>
   );
 }
 

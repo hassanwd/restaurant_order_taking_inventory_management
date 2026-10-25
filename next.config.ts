@@ -15,6 +15,13 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   // Do not advertise the framework version.
   poweredByHeader: false,
+  experimental: {
+    serverActions: {
+      // Room for a compressed menu photo plus multipart overhead; uploadImageAction separately
+      // rejects anything over 5MB once decoded, so this is just transport headroom, not the limit.
+      bodySizeLimit: "6mb",
+    },
+  },
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },
@@ -22,6 +29,12 @@ const nextConfig: NextConfig = {
         // Authenticated pages hold order and billing data — keep them out of shared and back/forward caches.
         source: "/((?!_next/static|_next/image|favicon.ico).*)",
         headers: [{ key: "Cache-Control", value: "no-store, max-age=0" }],
+      },
+      {
+        // Overrides the no-store rule above: an uploaded photo is named by its own content hash, so
+        // the same URL can never later serve different bytes — safe for browsers to cache forever.
+        source: "/uploads/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
     ];
   },

@@ -1,23 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { ArrowLeft, ChefHat, CircleCheck, Plus, Printer, ReceiptText } from "lucide-react";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, CircleCheck, Printer } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/primitives";
-import SegmentedControl, { type SegmentOption } from "@/components/ui/SegmentedControl";
-import { cn } from "@/lib/cn";
 import { currency } from "@/lib/format";
 import type { DiningTable, Order } from "@/lib/types";
 import KitchenTicket from "./KitchenTicket";
 import Receipt from "./Receipt";
-
-type DocumentKind = "receipt" | "kitchen" | "both";
-
-const TAB_OPTIONS: SegmentOption<DocumentKind>[] = [
-  { value: "receipt", label: "Customer bill", icon: ReceiptText },
-  { value: "kitchen", label: "Kitchen ticket", icon: ChefHat },
-  { value: "both", label: "Print both", icon: Printer },
-];
 
 export default function PrintScreen({
   orderId,
@@ -31,7 +22,16 @@ export default function PrintScreen({
   tables: DiningTable[];
   justPlaced: boolean;
 }) {
-  const [kind, setKind] = useState<DocumentKind>("receipt");
+  const router = useRouter();
+
+  // Straight from checkout: once the print dialog closes (printed or cancelled), head to the
+  // next order rather than leaving the cashier stranded on the receipt.
+  useEffect(() => {
+    if (!justPlaced) return;
+    const onAfterPrint = () => router.push("/order/new");
+    window.addEventListener("afterprint", onAfterPrint);
+    return () => window.removeEventListener("afterprint", onAfterPrint);
+  }, [justPlaced, router]);
 
   if (!order) {
     return (
@@ -58,15 +58,6 @@ export default function PrintScreen({
           </ButtonLink>
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            <SegmentedControl
-              options={TAB_OPTIONS}
-              value={kind}
-              onChange={setKind}
-              size="sm"
-              equalWidth={false}
-              hideLabelOnMobile
-            />
-
             <Button onClick={() => window.print()}>
               <Printer className="size-4" aria-hidden />
               Print
@@ -91,41 +82,23 @@ export default function PrintScreen({
                   : "Sent to the kitchen. A cashier settles the bill with the guest."}
               </p>
             </div>
-            <div className="flex gap-2">
-              <ButtonLink href="/order/new" size="sm">
-                <Plus className="size-3.5" aria-hidden />
-                New order
-              </ButtonLink>
-              <ButtonLink href="/orders" variant="secondary" size="sm">
-                All orders
-              </ButtonLink>
-            </div>
           </div>
         ) : null}
 
-        <div
-          className={cn(
-            "flex flex-wrap items-start justify-center gap-6",
-            kind === "both" && "sm:flex-nowrap",
-          )}
-        >
-          {kind !== "kitchen" ? (
-            <div className={cn(kind === "both" && "print-break")}>
-              <p className="no-print mb-2 text-center text-[11px] font-bold uppercase tracking-wide text-fg-muted">
-                Customer bill
-              </p>
-              <Receipt order={order} table={table} />
-            </div>
-          ) : null}
+        <div className="flex flex-wrap items-start justify-center gap-6 sm:flex-nowrap">
+          <div className="print-break">
+            <p className="no-print mb-2 text-center text-[11px] font-bold uppercase tracking-wide text-fg-muted">
+              Customer bill
+            </p>
+            <Receipt order={order} table={table} />
+          </div>
 
-          {kind !== "receipt" ? (
-            <div>
-              <p className="no-print mb-2 text-center text-[11px] font-bold uppercase tracking-wide text-fg-muted">
-                Kitchen ticket
-              </p>
-              <KitchenTicket order={order} table={table} />
-            </div>
-          ) : null}
+          <div>
+            <p className="no-print mb-2 text-center text-[11px] font-bold uppercase tracking-wide text-fg-muted">
+              Kitchen ticket
+            </p>
+            <KitchenTicket order={order} table={table} />
+          </div>
         </div>
 
         <p className="no-print mt-6 text-center text-[11px] text-fg-subtle">

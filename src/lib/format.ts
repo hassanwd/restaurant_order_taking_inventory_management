@@ -1,6 +1,6 @@
 import type { CartLine, OrderStatus, OrderType, PaymentMethod } from "./types";
 
-export const CURRENCY = "$";
+export const CURRENCY = "Rs ";
 
 /** Money is kept as plain numbers; round on every derived value to dodge float drift. */
 export const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;

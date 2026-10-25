@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Pencil, ShoppingBasket, StickyNote, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { EmptyState, Input, KeyValue, Textarea } from "@/components/ui/primitives";
+import { EmptyState, Input, ItemImage, KeyValue, Textarea } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
 import { currency, lineTotal, ORDER_TYPE_LABEL } from "@/lib/format";
 import { can } from "@/lib/permissions";
@@ -44,9 +44,7 @@ function CartLineRow({ lineId }: { lineId: string }) {
   return (
     <li className="rounded-xl border border-line bg-surface-2 p-3">
       <div className="flex items-start gap-3">
-        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-3 text-base" aria-hidden>
-          {line.icon}
-        </span>
+        <ItemImage src={line.image} alt={line.name} className="size-9 rounded-lg" />
 
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">

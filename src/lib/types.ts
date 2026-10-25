@@ -34,6 +34,8 @@ export interface OptionGroup {
   /** `single` renders radio choices, `multi` renders checkboxes. */
   type: "single" | "multi";
   required: boolean;
+  /** `multi` groups only: caps how many choices can be picked at once; `null` means no limit. */
+  maxSelect: number | null;
   choices: OptionChoice[];
 }
 
@@ -48,7 +50,10 @@ export interface MenuItem {
   description: string;
   price: number;
   categoryId: string;
-  icon: string;
+  /** Photo URL shown instead of an icon; `null` falls back to a generic placeholder. */
+  image: string | null;
+  /** Free-text ingredient/allergen list, shown when customizing the item. */
+  ingredients?: string | null;
   prepMinutes: number;
   available: boolean;
   tags: string[];
@@ -64,6 +69,12 @@ export interface Deal {
   description: string;
   price: number;
   items: DealComponent[];
+  /** Photo URL shown instead of an icon; `null` falls back to a generic placeholder. */
+  image: string | null;
+  /** Free-text ingredient/allergen list, shown when customizing the deal. */
+  ingredients: string | null;
+  /** Choices to make when adding the deal — e.g. "pick 1 of 4 dip sauces" — same shape as a menu item's. */
+  optionGroups: OptionGroup[];
   active: boolean;
   createdAt: string;
   createdBy: string;
@@ -91,7 +102,8 @@ export interface CartLine {
   lineId: string;
   itemId: string;
   name: string;
-  icon: string;
+  /** Snapshot of the item's photo URL at the time it was added; `null` falls back to a placeholder. */
+  image: string | null;
   /** Effective unit price — equals `listPrice` unless an admin adjusted it in the cart. */
   basePrice: number;
   /** The menu price when the line was added; used to show and audit adjustments. */
@@ -190,30 +202,6 @@ export interface EmployeeView {
   lastActiveAt: string | null;
   ordersPlaced: number;
   locked: boolean;
-}
-
-export interface InventoryItem {
-  id: string;
-  name: string;
-  unit: string;
-  quantity: number;
-  reorderLevel: number;
-  createdAt: string;
-}
-
-export type MovementType = "in" | "out" | "usage";
-
-export interface InventoryMovement {
-  id: string;
-  itemId: string;
-  itemName: string;
-  type: MovementType;
-  quantity: number;
-  balanceAfter: number;
-  note: string;
-  at: string;
-  byId: string;
-  byName: string;
 }
 
 export interface AuditEntry {

@@ -8,8 +8,6 @@ import { DEFAULT_PRICING } from "@/data/settings";
 import type {
   AuditEntry,
   Deal,
-  InventoryItem,
-  InventoryMovement,
   MenuItem,
   Order,
   Pricing,
@@ -59,8 +57,6 @@ export interface Database {
   sessions: SessionRecord[];
   menuItems: MenuItem[];
   deals: Deal[];
-  inventory: InventoryItem[];
-  movements: InventoryMovement[];
   orders: Order[];
   audit: AuditEntry[];
   settings: { pricing: Pricing; orderCounter: number };
@@ -77,21 +73,8 @@ interface Holder {
 const globalForDb = globalThis as unknown as { __otsDb?: Holder };
 const holder: Holder = (globalForDb.__otsDb ??= { db: null, loading: null, queue: Promise.resolve() });
 
-const DATA_DIR = process.env.OTS_DATA_DIR ?? path.join(process.cwd(), ".data");
+export const DATA_DIR = process.env.OTS_DATA_DIR ?? path.join(process.cwd(), ".data");
 const DB_FILE = path.join(DATA_DIR, "db.json");
-
-const SEED_INVENTORY: [string, string, number, number][] = [
-  ["Beef ribeye", "kg", 18, 6],
-  ["Chicken breast", "kg", 22, 8],
-  ["Pizza dough", "kg", 14, 5],
-  ["Mozzarella", "kg", 9, 4],
-  ["Burger buns", "pcs", 60, 40],
-  ["Pasta (dry)", "kg", 12, 5],
-  ["Coffee beans", "kg", 6, 3],
-  ["Fresh oranges", "kg", 15, 6],
-  ["Fries (frozen)", "kg", 4, 8],
-  ["Cooking oil", "L", 20, 8],
-];
 
 async function seed(): Promise<Database> {
   const now = new Date();
@@ -124,15 +107,6 @@ async function seed(): Promise<Database> {
   const creators = users.filter((user) => user.role !== "super_admin").map(({ id, name }) => ({ id, name }));
   const orders = buildSeedOrders(now, creators, pricing);
 
-  const inventory: InventoryItem[] = SEED_INVENTORY.map(([name, unit, quantity, reorderLevel]) => ({
-    id: randomId("inv"),
-    name,
-    unit,
-    quantity,
-    reorderLevel,
-    createdAt: iso,
-  }));
-
   const db: Database = {
     version: 1,
     users,
@@ -140,12 +114,13 @@ async function seed(): Promise<Database> {
     menuItems: structuredClone(MENU_ITEMS),
     deals: SEED_DEALS.map((deal) => ({
       ...deal,
+      image: null,
+      ingredients: null,
+      optionGroups: [],
       active: true,
       createdAt: iso,
       createdBy: users[0].id,
     })),
-    inventory,
-    movements: [],
     orders,
     audit: [],
     settings: { pricing: structuredClone(pricing), orderCounter: SEED_ORDER_COUNTER(orders) },
@@ -179,14 +154,57 @@ async function persist(db: Database) {
   await rename(temp, DB_FILE);
 }
 
+/** Menu items, deals and cart lines used to carry an emoji `icon`; replaced by a photo `image`. */
+function addImageField(entry: Record<string, unknown>) {
+  if (typeof entry.image === "undefined") entry.image = null;
+  delete entry.icon;
+}
+
+/** Option groups saved before `maxSelect` existed get the old, unlimited behaviour. */
+function addMaxSelectField(groups: unknown) {
+  if (!Array.isArray(groups)) return;
+  for (const group of groups as Record<string, unknown>[]) {
+    if (typeof group.maxSelect === "undefined") group.maxSelect = null;
+  }
+}
+
 /**
- * The "served" status no longer exists. Orders saved with it move on: paid ones are
- * complete, unpaid ones are ready (still waiting on the bill).
+ * Brings a store written by an older version up to date — applied in memory on every load, same as
+ * every read since first start; the file on disk only catches up on the next write.
+ *
+ * - The "served" status no longer exists. Orders saved with it move on: paid ones are
+ *   complete, unpaid ones are ready (still waiting on the bill).
+ * - Menu items, deals and cart lines get an `image` field in place of their old `icon`.
  */
 function migrate(db: Database): Database {
   for (const order of db.orders) {
     if ((order.status as string) === "served") order.status = order.payment ? "completed" : "ready";
+    for (const line of order.lines) addImageField(line as unknown as Record<string, unknown>);
+    // An order from before dine-in tracking existed (or one a dev build briefly stripped it from)
+    // has neither field — treat it as a non-table order rather than crash rendering it.
+    const loose = order as Partial<Record<"tableId" | "guests", unknown>>;
+    if (typeof loose.tableId === "undefined") order.tableId = null;
+    if (typeof loose.guests === "undefined") order.guests = 1;
   }
+  for (const item of db.menuItems) {
+    addImageField(item as unknown as Record<string, unknown>);
+    addMaxSelectField(item.optionGroups);
+  }
+  for (const deal of db.deals) {
+    addImageField(deal as unknown as Record<string, unknown>);
+    const loose = deal as unknown as Partial<Record<"ingredients" | "optionGroups", unknown>>;
+    if (typeof loose.ingredients === "undefined") deal.ingredients = null;
+    if (!Array.isArray(loose.optionGroups)) deal.optionGroups = [];
+    addMaxSelectField(deal.optionGroups);
+  }
+  if (typeof db.settings.orderCounter !== "number") {
+    db.settings.orderCounter = SEED_ORDER_COUNTER(db.orders);
+  }
+  // Inventory tracking has been removed; drop its leftover keys from an older file rather than
+  // carry dead data forever.
+  const legacy = db as unknown as Record<string, unknown>;
+  delete legacy.inventory;
+  delete legacy.movements;
   return db;
 }
 

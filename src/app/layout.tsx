@@ -56,7 +56,9 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       <head>
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       </head>
-      <body className="min-h-full">
+      {/* suppressHydrationWarning: some browser extensions (e.g. ColorZilla's cz-shortcut-listen)
+          add an attribute to <body> before React hydrates; that mismatch is theirs, not ours. */}
+      <body className="min-h-full" suppressHydrationWarning>
         <StoreProvider preloadedState={{ config: { user, pricing } }}>
           <ThemeSync />
           <ServerSync user={user} pricing={pricing} />

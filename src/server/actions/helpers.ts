@@ -4,6 +4,7 @@ import { z } from "zod";
 import { can, type Permission } from "@/lib/permissions";
 import type { SessionUser } from "@/lib/types";
 import { getCurrentUser } from "../session";
+import { UPLOAD_PATH_PATTERN } from "../uploads";
 
 /** Raised for anything the user should be told about; everything else becomes a generic failure. */
 export class ActionError extends Error {
@@ -69,6 +70,10 @@ export const cleanText = (max: number, label: string, multiline = false) =>
 export const requiredText = (min: number, max: number, label: string) =>
   cleanText(max, label).pipe(z.string().min(min, `${label} must be at least ${min} characters.`));
 
+/** Like `cleanText`, but an empty value is stored as `null` rather than `""`. */
+export const optionalText = (max: number, label: string, multiline = false) =>
+  cleanText(max, label, multiline).transform((value): string | null => (value === "" ? null : value));
+
 export const money = (label: string, max = 100000) =>
   z
     .number({ error: `${label} must be a number.` })
@@ -76,9 +81,16 @@ export const money = (label: string, max = 100000) =>
     .min(0, `${label} cannot be negative.`)
     .max(max, `${label} is too large.`);
 
-export const quantity = (label: string, max = 1_000_000) =>
+/**
+ * A photo's path, as handed back by `uploadImageAction` — never a link typed into a form. Empty
+ * clears it (stored as `null`); anything else must match our own content-addressed upload path, so
+ * this field can never be made to hold an arbitrary (or `javascript:`) URL.
+ */
+export const imagePath = (label: string) =>
   z
-    .number({ error: `${label} must be a number.` })
-    .finite(`${label} must be a number.`)
-    .positive(`${label} must be greater than zero.`)
-    .max(max, `${label} is too large.`);
+    .string({ error: `${label} must be text.` })
+    .transform((value) => value.trim())
+    .refine((value) => value === "" || UPLOAD_PATH_PATTERN.test(value), {
+      message: `${label} must come from an uploaded photo.`,
+    })
+    .transform((value): string | null => (value === "" ? null : value));

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { ArrowLeft, ShoppingCart } from "lucide-react";
+import { GreetingBanner } from "@/components/ui/primitives";
 import { currency } from "@/lib/format";
 import type { Category, DiningTable, MenuItem, OrderType } from "@/lib/types";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -17,6 +18,8 @@ interface OrderTakingScreenProps {
   categories: Category[];
   items: MenuItem[];
   tables: DiningTable[];
+  userName: string;
+  openOrders: number;
   /** Read from the query string on the server (e.g. /order/new?type=delivery). */
   initialType?: OrderType;
   initialTableId?: string;
@@ -26,6 +29,8 @@ export default function OrderTakingScreen({
   categories,
   items,
   tables,
+  userName,
+  openOrders,
   initialType,
   initialTableId,
 }: OrderTakingScreenProps) {
@@ -55,6 +60,7 @@ export default function OrderTakingScreen({
   return (
     <div className="flex h-[calc(100dvh-4rem)] min-h-0">
       <div className="scroll-slim min-w-0 flex-1 space-y-4 overflow-y-auto p-4 pb-24 sm:p-6 xl:pb-6">
+        <GreetingBanner name={userName} openOrders={openOrders} />
         <OrderSetup tables={tables} />
         <MenuBrowser categories={categories} items={items} />
       </div>

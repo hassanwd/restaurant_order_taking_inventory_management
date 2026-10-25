@@ -15,7 +15,7 @@ const at = (time: string) => time;
 interface SeedLine {
   itemId: string;
   name: string;
-  icon: string;
+  image: string | null;
   basePrice: number;
   quantity: number;
   options?: [string, string, number][];
@@ -27,7 +27,7 @@ function toLines(orderId: string, seeds: SeedLine[]): CartLine[] {
     lineId: `${orderId}-L${index + 1}`,
     itemId: seed.itemId,
     name: seed.name,
-    icon: seed.icon,
+    image: seed.image,
     basePrice: seed.basePrice,
     listPrice: seed.basePrice,
     quantity: seed.quantity,

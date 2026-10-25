@@ -39,23 +39,23 @@ hides what you cannot use).
 
 | | Worker | Admin / Cashier | Super Admin |
 | --- | :-: | :-: | :-: |
-| View menu, drinks, add-ons and deals; add them to the cart | ✅ | ✅ | ✅ |
-| Enter customer name, phone, email and location | ✅ | ✅ | ✅ |
-| Choose dine-in / takeaway / parcel | ✅ | ✅ | ✅ |
-| Place an order and show the customer bill | ✅ | ✅ | ✅ |
+| View menu, drinks, add-ons and deals; add them to the cart | ✅ | | |
+| Enter customer name, phone, email and location | ✅ | | |
+| Choose dine-in / takeaway / parcel | ✅ | | |
+| Place an order | ✅ | | |
+| Show the customer bill and kitchen ticket | ✅ | ✅ | ✅ |
+| Live **Monitor** of orders in progress | ✅ | | |
 | Take payment by **cash or card** (GST by payment method) — workers on their own orders | ✅ | ✅ | ✅ |
 | See orders | own only | all | all |
 | Advance order status (pending → preparing → ready) | ✅ | ✅ | ✅ |
-| Adjust item prices in the cart, apply discounts | | ✅ | ✅ |
+| Complete a Ready order / hand a parcel to delivery (from the Orders list; workers use Monitor) | ✅ | ✅ | ✅ |
 | Cancel or **return** an order **before it is completed** (reason required; a paid order is refunded) — workers on their own orders | ✅ | ✅ | ✅ |
 | Return an order **after** it was completed (refund + reason) | | ✅ | ✅ |
 | Add / delete menu items, mark sold out, change prices | | ✅ | ✅ |
 | Create / pause / delete deals | | ✅ | ✅ |
-| Inventory: stock in, stock out, daily usage, remaining; add / delete items | | ✅ | ✅ |
 | Billing & sales records, tax / GST settings | | ✅ | ✅ |
-| Daily / weekly / monthly reports (orders, billing, inventory) + CSV export | | | ✅ |
+| Daily / weekly / monthly reports (orders, billing) + CSV export | | | ✅ |
 | Add / delete employees, freeze / unfreeze, reset passwords | | | ✅ |
-| Activity (audit) log | | | ✅ |
 
 The permission table lives in one file, `src/lib/permissions.ts`.
 
@@ -65,16 +65,15 @@ The permission table lives in one file, `src/lib/permissions.ts`.
 | --- | --- | --- |
 | Sign in | `/login` | everyone |
 | Dashboard | `/` | cashier and up (workers land on New order) |
-| Tables | `/tables` | cashier and up |
-| New order | `/order/new` | everyone |
-| Checkout | `/order/checkout` | everyone (payment panel: cashier and up) |
+| New order | `/order/new` | workers only |
+| Checkout | `/order/checkout` | workers only |
+| Monitor | `/monitor` | workers only |
 | Orders / details | `/orders`, `/orders/[id]` | everyone (workers: own orders only) |
 | Bill & kitchen ticket | `/print/[id]` | everyone (same scoping) |
 | Menu & deals | `/menu` | cashier and up |
-| Inventory | `/inventory` | cashier and up |
 | Billing & GST settings | `/billing` | cashier and up |
 | Reports | `/reports` | Super Admin |
-| Employees & activity log | `/employees` | Super Admin |
+| Employees | `/employees` | Super Admin |
 
 A worker picks the order type (and Table 1–5 for dine-in), taps items (menu, drinks, add-ons or a
 deal) and reviews the cart. **Checkout** asks only what the order type needs — name and order note for
@@ -129,12 +128,18 @@ trusted.
   page, `X-Powered-By` removed.
 - **CSV export** — cells starting with `= + - @` are neutralised so customer-typed text cannot run
   as a spreadsheet formula.
+- **Uploaded photos** — a menu item or deal photo is never a typed-in link: the file's actual bytes
+  are sniffed (not the browser's claimed type or extension) and must be a PNG, JPEG, WEBP or GIF,
+  5MB or smaller. It is then named and stored by its own content hash, so the field that records it
+  can only ever hold a path to something this app itself validated and saved — never an arbitrary
+  or `javascript:` URL — and serving it still goes through the same sign-in check as everything else.
 - **Open redirects** — the post-login `?next=` target must be a same-site path.
 - **Safeguards** — nobody can freeze or delete their own account, and the last active Super Admin
   cannot be frozen or deleted.
 - **Audit trail** — sign-ins (and failures), order placement, status changes, price adjustments,
-  discounts, settlements, cancellations, returns, menu/deal/inventory/tax changes, employee
-  changes and exports are recorded with the actor and shown to Super Admins.
+  discounts, settlements, cancellations, returns, menu/deal/tax changes, employee changes and
+  exports are recorded with the actor in `db.audit` (`recordAudit` in `src/server/db.ts`). There is
+  no screen that displays it — it exists for a database export or a future admin view to read.
 - **Secrets** — no default passwords ship with the app; `.data/` is git-ignored.
 
 > **Deployment notes.** Run behind https. The data store is a single JSON file written atomically
@@ -177,8 +182,8 @@ ramp against **dark** warm neutrals and **white** surfaces. Semantic tokens (`--
 `@theme inline`, so components use `bg-surface` / `text-fg-muted` / `bg-accent` and never a raw
 hex value. Both themes are complete; the toggle lives in the top bar, and an inline script applies
 the saved choice before first paint so there is no flash. Every new screen — sign-in, menu,
-inventory, billing, reports, employees — is built from the same tokens and shared primitives, so
-the whole app looks like one product.
+billing, reports, employees — is built from the same tokens and shared primitives, so the whole
+app looks like one product.
 
 Print styling is part of the same stylesheet: `@page` is set to an 80mm roll, `.no-print` hides
 the UI chrome and `.print-sheet` flattens the bill to black on white.
@@ -192,8 +197,20 @@ changes.
 All interactive chrome — nav, buttons, status badges, payment/order-type indicators, search,
 pagination, the modal close button, quantity steppers, toasts — renders real SVG icons from
 [lucide-react](https://lucide.dev), mapped once in `src/lib/icons.tsx` rather than repeated inline.
-The one deliberate exception is the emoji per dish in `src/data/menu.ts`: those stand in for a
-food photo, not a UI icon, so they stay as data.
+A menu item or deal without a photo falls back to a generic icon on a muted tile
+(`ItemImage` in `src/components/ui/primitives.tsx`) rather than an emoji.
+
+## Menu & deal photos
+
+Admins add a photo from the Menu & Deals screen by picking a file — there is nowhere to paste a
+link. The browser downscales and re-encodes it (max 1600px, JPEG ~85% quality; GIFs are left alone
+so an animation is not flattened to its first frame) before uploading, then `uploadImageAction`
+(`src/server/actions/uploads.ts`) re-validates it server-side regardless of what the browser did:
+the actual bytes are sniffed against PNG/JPEG/WEBP/GIF signatures, capped at 5MB, and saved under
+`.data/uploads/` named by their own SHA-256 hash. The hash doubles as a cache key — identical photos
+collapse onto one file, and because a given URL's content can never change, `/uploads/[file]/route.ts`
+serves it with a cache-forever header after confirming there is still a signed-in session. Replacing
+or removing an item's photo later works the same way, one click on its thumbnail in place.
 
 ## Interaction feel
 
@@ -212,13 +229,14 @@ src/
     layout.tsx            root layout — fonts, theme bootstrap, Redux provider
     login/                sign-in screen
     (shell)/              screens that share the sidebar + top bar (sign-in required)
-      menu/ inventory/ billing/ reports/ employees/   management screens
+      menu/ billing/ reports/ employees/   management screens
       export/[kind]/      CSV downloads (permission-checked route handler)
     print/[id]/           bill / kitchen ticket, deliberately outside the shell
+    uploads/[file]/       serves a saved menu/deal photo (sign-in checked again, cached forever)
   components/
     layout/               sidebar, top bar, account menu, theme sync
     order/                order taking, checkout, detail, settle/return dialogs, receipt
-    admin/                menu, inventory, employee managers, tax settings form
+    admin/                menu, employee managers, tax settings form
     auth/                 login form, change-password dialog
     ui/                   buttons, modal, confirm, toaster, form primitives
   data/                   seed menu, tables, demo orders, outlet settings
@@ -227,7 +245,8 @@ src/
     db.ts                 file-backed store, atomic writes, first-run seeding
     security.ts           scrypt, tokens, rate limiting
     session.ts            cookie sessions, requireUser / requirePermission
+    uploads.ts            sniffs, hashes and saves a menu/deal photo
     data.ts               role-scoped reads        reports.ts   period reports
-    actions/              Server Actions (auth, orders, admin, employees)
+    actions/              Server Actions (auth, orders, admin, employees, uploads)
   store/                  Redux Toolkit store, slices, selectors, persistence
 ```

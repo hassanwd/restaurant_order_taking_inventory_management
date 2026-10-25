@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { ChevronRight, Clock, Search, SearchX } from "lucide-react";
+import { ChevronRight, Clock, Plus, Search, SearchX, UtensilsCrossed } from "lucide-react";
 import { Chip, EmptyState, Input } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
 import { currency } from "@/lib/format";
@@ -16,6 +16,11 @@ import {
   showToast,
 } from "@/store/slices/uiSlice";
 
+/**
+ * A horizontal browsing card: text (name, description, price) on the left, the product photo
+ * floating uncropped on the right rather than cropped into a box — so an off-center or unusually
+ * shaped photo never loses part of itself, and shows its own corners like a product cutout.
+ */
 function ItemCard({ item, count }: { item: MenuItem; count: number }) {
   const dispatch = useAppDispatch();
   const hasOptions = item.optionGroups.length > 0;
@@ -36,9 +41,9 @@ function ItemCard({ item, count }: { item: MenuItem; count: number }) {
       onClick={onSelect}
       disabled={!item.available}
       className={cn(
-        "group relative flex cursor-pointer flex-col gap-2 rounded-2xl border bg-surface p-3 text-left transition-all duration-150",
+        "group relative flex min-h-[9rem] cursor-pointer items-stretch gap-3 overflow-hidden rounded-2xl border bg-surface p-4 pr-32 text-left transition-all duration-150 sm:min-h-[10rem] sm:pr-40",
         item.available
-          ? "border-line hover:-translate-y-0.5 hover:border-accent hover:shadow-pop active:translate-y-0 active:scale-[0.98]"
+          ? "border-line hover:-translate-y-0.5 hover:border-accent hover:shadow-pop active:translate-y-0 active:scale-[0.99]"
           : "cursor-not-allowed border-dashed border-line opacity-55",
       )}
     >
@@ -48,42 +53,66 @@ function ItemCard({ item, count }: { item: MenuItem; count: number }) {
         </span>
       ) : null}
 
-      {/* The dish glyph stands in for a photo — kept as the menu's own emoji, not chrome. */}
-      <div className="relative grid aspect-[4/3] place-items-center rounded-xl bg-surface-3 text-4xl">
-        <span aria-hidden>{item.icon}</span>
-        {item.popular ? (
-          <span className="absolute left-2 top-2 rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-accent-fg">
-            Popular
-          </span>
-        ) : null}
-        {!item.available ? (
-          <span className="absolute inset-x-2 bottom-2 rounded-lg bg-ink-900/85 py-1 text-center text-[10px] font-bold uppercase tracking-wide text-white">
-            Sold out
-          </span>
-        ) : null}
-      </div>
-
-      <div className="min-w-0">
-        <p className="truncate text-sm font-bold text-fg">{item.name}</p>
-        <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-fg-muted">
-          {item.description}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <p className="line-clamp-2 text-sm font-bold text-fg">{item.name}</p>
+        {/* Ingredients tell the order-taker what's actually in it; description is just a fallback
+            for anything that hasn't had its ingredients filled in yet. */}
+        <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-fg-muted">
+          {item.ingredients || item.description}
         </p>
+
+        <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-2">
+          <span className="rounded-lg bg-ink-900 px-2.5 py-1 text-xs font-bold tabular-nums text-white dark:bg-white dark:text-ink-900">
+            {currency(item.price)}
+          </span>
+          <span className="flex items-center gap-1 text-[11px] text-fg-subtle">
+            <Clock className="size-3" aria-hidden />
+            {item.prepMinutes}m
+          </span>
+          {item.popular ? (
+            <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-accent">
+              Popular
+            </span>
+          ) : null}
+          {!item.available ? (
+            <span className="rounded-full bg-danger-soft px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-danger">
+              Sold out
+            </span>
+          ) : null}
+        </div>
+
+        {hasOptions && item.available ? (
+          <span className="mt-1 flex items-center text-[10px] font-semibold uppercase tracking-wide text-fg-subtle">
+            Choose options
+            <ChevronRight className="size-3" aria-hidden />
+          </span>
+        ) : null}
       </div>
 
-      <div className="mt-auto flex items-center justify-between gap-2 pt-1">
-        <span className="text-sm font-bold tabular-nums text-accent">{currency(item.price)}</span>
-        <span className="flex items-center gap-1 text-[11px] text-fg-subtle">
-          <Clock className="size-3" aria-hidden />
-          {item.prepMinutes}m
-        </span>
+      {/* The photo itself: object-contain, no background box, so it floats on the card like a
+          product cutout instead of being cropped to fill a tile. */}
+      <div className="pointer-events-none absolute inset-y-1 right-1 flex w-32 items-center justify-center sm:w-40">
+        {item.image ? (
+          // eslint-disable-next-line @next/next/no-img-element -- admin-supplied URL, fetched directly by the browser.
+          <img
+            src={item.image}
+            alt=""
+            className="size-full object-contain drop-shadow-md"
+            loading="lazy"
+          />
+        ) : (
+          <UtensilsCrossed className="size-11 text-fg-subtle" aria-hidden />
+        )}
       </div>
 
-      {hasOptions && item.available ? (
-        <span className="flex items-center text-[10px] font-semibold uppercase tracking-wide text-fg-subtle">
-          Choose options
-          <ChevronRight className="size-3" aria-hidden />
-        </span>
-      ) : null}
+      <span
+        className={cn(
+          "absolute -bottom-1 -right-1 grid size-10 place-items-center rounded-full text-accent-fg shadow-card transition-transform duration-150",
+          item.available ? "bg-accent group-hover:scale-105" : "bg-fg-subtle",
+        )}
+      >
+        <Plus className="size-5" aria-hidden />
+      </span>
     </button>
   );
 }
@@ -172,7 +201,7 @@ export default function MenuBrowser({
           description="Try another keyword, or pick a different category to browse the full menu."
         />
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
           {visible.map((item) => (
             <ItemCard key={item.id} item={item} count={counts.get(item.id) ?? 0} />
           ))}

@@ -1,13 +1,11 @@
 import Link from "next/link";
-import { Armchair, ChevronRight, ReceiptText, ShieldAlert, TrendingUp, Undo2, Wallet } from "lucide-react";
+import { ChevronRight, CircleX, ReceiptText, ShieldAlert, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { ButtonLink } from "@/components/ui/Button";
-import { Card, SectionTitle, StatusBadge } from "@/components/ui/primitives";
-import { OUTLET } from "@/data/settings";
+import { Card, GreetingBanner, ItemImage, SectionTitle, StatusBadge } from "@/components/ui/primitives";
 import { currency, formatTime, ORDER_TYPE_LABEL } from "@/lib/format";
 import { ORDER_TYPE_ICONS } from "@/lib/icons";
 import { can } from "@/lib/permissions";
-import { getDashboardStats, getOrders, getTables } from "@/server/data";
+import { getDashboardStats, getOrders } from "@/server/data";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/server/session";
 
@@ -52,11 +50,10 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
   const user = await requireUser();
   // Workers have no dashboard — their home is the order screen.
   if (!can(user.role, "dashboard.view")) redirect("/order/new");
-  const [params, stats, orders, tables] = await Promise.all([
+  const [params, stats, orders] = await Promise.all([
     searchParams,
     getDashboardStats(user),
     getOrders(user),
-    getTables(),
   ]);
 
   // Sales figures are for cashiers and above; workers see their own order counts only.
@@ -64,10 +61,6 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
   const seesAll = can(user.role, "order.view.all");
 
   const recent = orders.slice(0, 6);
-  const freeTables = tables.filter((table) => table.status === "free").length;
-  const DineInIcon = ORDER_TYPE_ICONS["dine-in"];
-  const TakeawayIcon = ORDER_TYPE_ICONS.takeaway;
-  const ParcelIcon = ORDER_TYPE_ICONS.parcel;
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
@@ -78,36 +71,11 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
         </p>
       ) : null}
 
-      <section className="overflow-hidden rounded-2xl border border-line bg-linear-to-br from-brand-500 to-brand-700 p-6 text-white shadow-pop">
-        <div className="flex flex-wrap items-end justify-between gap-6">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/75">
-              {OUTLET.branch} · {OUTLET.register} · {user.name}
-            </p>
-            <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
-              Good service starts with a fast order.
-            </h2>
-            <p className="mt-1.5 max-w-md text-sm text-white/85">
-              {stats.openOrders} orders are still open and {freeTables} of {stats.tablesTotal}{" "}
-              tables are free right now.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <ButtonLink href="/order/new?type=dine-in" variant="light" size="lg">
-              <DineInIcon className="size-4" aria-hidden />
-              New Dine In
-            </ButtonLink>
-            <ButtonLink href="/order/new?type=takeaway" variant="light" size="lg">
-              <TakeawayIcon className="size-4" aria-hidden />
-              Takeaway
-            </ButtonLink>
-            <ButtonLink href="/order/new?type=parcel" variant="light" size="lg">
-              <ParcelIcon className="size-4" aria-hidden />
-              Parcel
-            </ButtonLink>
-          </div>
-        </div>
-      </section>
+      {/* Super Admin oversees multiple registers, so the single-register greeting lives on the
+          worker's order screen instead — see GreetingBanner in OrderTakingScreen. */}
+      {user.role !== "super_admin" ? (
+        <GreetingBanner name={user.name} openOrders={stats.openOrders} />
+      ) : null}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[repeat(auto-fit,minmax(200px,1fr))]">
         <Stat
@@ -126,28 +94,14 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
             tone="dark"
           />
         ) : null}
-        {seesSales ? (
-          <Stat
-            label="Average ticket"
-            value={currency(stats.averageTicket)}
-            sub="Per billable order"
-            icon={TrendingUp}
-          />
-        ) : null}
         {seesAll ? (
           <Stat
-            label="Returned today"
-            value={String(stats.returnedToday)}
-            sub="Refunded orders"
-            icon={Undo2}
+            label="Cancelled today"
+            value={String(stats.cancelledToday)}
+            sub="Called-off orders"
+            icon={CircleX}
           />
         ) : null}
-        <Stat
-          label="Tables occupied"
-          value={`${stats.tablesOccupied}/${stats.tablesTotal}`}
-          sub={`${freeTables} available now`}
-          icon={Armchair}
-        />
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[1.6fr_1fr] xl:items-start">
@@ -214,9 +168,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
                   <span className="w-4 text-xs font-bold tabular-nums text-fg-subtle">
                     {index + 1}
                   </span>
-                  <span className="grid size-9 place-items-center rounded-lg bg-surface-3 text-base" aria-hidden>
-                    {item.icon}
-                  </span>
+                  <ItemImage src={item.image} alt={item.name} className="size-9 rounded-lg" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-fg">{item.name}</p>
                     <p className="text-[11px] text-fg-muted">{item.quantity} sold</p>
@@ -229,49 +181,6 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
                 </li>
               ))}
             </ul>
-          </Card>
-
-          <Card className="p-5">
-            <SectionTitle
-              title="Floor status"
-              action={
-                <Link
-                  href="/tables"
-                  className="flex items-center text-xs font-bold text-accent hover:text-accent-hover"
-                >
-                  Open
-                  <ChevronRight className="size-3.5" aria-hidden />
-                </Link>
-              }
-            />
-            <div className="mt-4 grid grid-cols-6 gap-2">
-              {tables.map((table) => (
-                <span
-                  key={table.id}
-                  title={`${table.name} · ${table.status}`}
-                  className={`grid h-9 place-items-center rounded-lg text-[11px] font-bold ${
-                    table.status === "free"
-                      ? "bg-success-soft text-success"
-                      : table.status === "occupied"
-                        ? "bg-accent text-accent-fg"
-                        : "bg-warning-soft text-warning"
-                  }`}
-                >
-                  {table.id}
-                </span>
-              ))}
-            </div>
-            <div className="mt-4 flex flex-wrap gap-4 text-[11px] text-fg-muted">
-              <span className="flex items-center gap-1.5">
-                <span className="size-2.5 rounded-full bg-success" /> Free
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="size-2.5 rounded-full bg-accent" /> Occupied
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="size-2.5 rounded-full bg-warning" /> Reserved
-              </span>
-            </div>
           </Card>
         </div>
       </div>

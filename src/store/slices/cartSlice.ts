@@ -90,7 +90,7 @@ const cartSlice = createSlice({
           lineId: nanoid(8),
           itemId: item.id,
           name: item.name,
-          icon: item.icon,
+          image: item.image,
           basePrice: item.price,
           listPrice: item.price,
           quantity,

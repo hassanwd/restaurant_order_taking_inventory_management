@@ -30,11 +30,11 @@ export const selectCartIssues = createSelector(selectCart, (cart) => {
   return issues;
 });
 
-/** What stops the order being placed: the cart rules plus the details checkout collects for a parcel. */
+/** What stops the order being placed: the cart rules plus the customer details checkout collects. */
 export const selectCheckoutIssues = createSelector([selectCart, selectCartIssues], (cart, cartIssues) => {
   const issues = [...cartIssues];
+  if (!cart.customer.name.trim()) issues.push("Customer name is required.");
   if (cart.orderType === "parcel") {
-    if (!cart.customer.name.trim()) issues.push("Customer name is required for parcel orders.");
     if (!cart.customer.phone.trim()) issues.push("Phone number is required for parcel orders.");
     if (!cart.customer.address.trim()) issues.push("Location is required for parcel orders.");
   }

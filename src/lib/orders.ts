@@ -1,7 +1,14 @@
-import type { Order, OrderStatus, OrderType } from "./types";
+import type { Order, OrderStatus, OrderType, Role } from "./types";
 
 export type OrderFilter = OrderStatus | "all";
 export type OrderTypeFilter = OrderType | "all";
+
+/**
+ * A Super Admin reviews finished business only: completed and cancelled orders. Every other role sees
+ * orders in any status (subject to the own / all scoping applied elsewhere).
+ */
+export const roleSeesOrder = (role: Role, order: Order) =>
+  role !== "super_admin" || order.status === "completed" || order.status === "cancelled";
 
 /** Pure list filtering, shared by the store selector and the orders screen. */
 export function filterOrders(

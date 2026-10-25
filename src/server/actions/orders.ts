@@ -103,8 +103,17 @@ function buildLines(db: Database, inputs: z.output<typeof lineSchema>[], canAdju
       if (group.type === "single" && count > 1) {
         throw new ActionError(`Choose only one ${group.name.toLowerCase()} for ${item.name}.`);
       }
-      if (group.required && count === 0) {
-        throw new ActionError(`Choose a ${group.name.toLowerCase()} for ${item.name}.`);
+      if (group.type === "multi" && group.maxSelect && count > group.maxSelect) {
+        throw new ActionError(`Choose up to ${group.maxSelect} ${group.name.toLowerCase()} for ${item.name}.`);
+      }
+      // A required "pick up to N" group can never exceed N (checked above), so requiring "at
+      // least N" here means it must be exactly N.
+      if (group.required && count < (group.maxSelect ?? 1)) {
+        throw new ActionError(
+          group.maxSelect
+            ? `Choose ${group.maxSelect} ${group.name.toLowerCase()} for ${item.name}.`
+            : `Choose a ${group.name.toLowerCase()} for ${item.name}.`,
+        );
       }
     }
 
@@ -119,7 +128,7 @@ function buildLines(db: Database, inputs: z.output<typeof lineSchema>[], canAdju
       lineId: randomId("L"),
       itemId: item.id,
       name: item.name,
-      icon: item.icon,
+      image: item.image,
       basePrice,
       listPrice: item.price,
       quantity: input.quantity,
@@ -169,8 +178,8 @@ export async function placeOrderAction(
       throw new ActionError("Take payment before placing a dine-in or takeaway order.");
     }
 
+    if (!data.customer.name) throw new ActionError("Customer name is required.");
     if (data.type === "parcel") {
-      if (!data.customer.name) throw new ActionError("Customer name is required for parcel orders.");
       if (!data.customer.phone) throw new ActionError("Contact number is required for parcel orders.");
       if (!data.customer.address) throw new ActionError("Location is required for parcel orders.");
     }
@@ -210,7 +219,7 @@ export async function placeOrderAction(
         type: data.type,
         tableId: data.type === "dine-in" ? data.tableId : null,
         guests: data.type === "dine-in" ? data.guests : 1,
-        customer: { ...data.customer, name: data.customer.name || "Walk-in Guest" },
+        customer: data.customer,
         lines,
         notes: data.notes,
         discountPercent: data.discountPercent,

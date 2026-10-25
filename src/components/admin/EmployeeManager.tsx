@@ -6,11 +6,11 @@ import { Lock, KeyRound, Snowflake, Sun, Trash2, UserPlus, Users } from "lucide-
 import { Button } from "@/components/ui/Button";
 import ConfirmModal from "@/components/ui/ConfirmModal";
 import Modal from "@/components/ui/Modal";
-import { Card, EmptyState, Field, Input, SectionTitle, Select } from "@/components/ui/primitives";
+import { Card, EmptyState, Field, Input, Select } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
 import { formatDateTime, initials } from "@/lib/format";
 import { ROLE_LABEL, ROLES } from "@/lib/permissions";
-import type { AuditEntry, EmployeeView, Role } from "@/lib/types";
+import type { EmployeeView, Role } from "@/lib/types";
 import { useServerAction } from "@/lib/useServerAction";
 import {
   createEmployeeAction,
@@ -146,11 +146,9 @@ type Pending =
 
 export default function EmployeeManager({
   employees,
-  audit,
   currentUserId,
 }: {
   employees: EmployeeView[];
-  audit: AuditEntry[];
   currentUserId: string;
 }) {
   const router = useRouter();
@@ -307,26 +305,6 @@ export default function EmployeeManager({
           </div>
         </Card>
       )}
-
-      <Card className="overflow-hidden">
-        <div className="border-b border-line px-5 py-4">
-          <SectionTitle title="Activity log" subtitle="Sign-ins, price changes, returns and account changes — newest first" />
-        </div>
-        {audit.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-fg-muted">Nothing recorded yet.</p>
-        ) : (
-          <ul className="divide-y divide-line">
-            {audit.map((entry) => (
-              <li key={entry.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-5 py-2.5 text-xs">
-                <span className="w-36 shrink-0 tabular-nums text-fg-subtle">{formatDateTime(entry.at)}</span>
-                <span className="w-28 shrink-0 truncate font-bold text-fg">{entry.actorName}</span>
-                <span className="shrink-0 rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">{entry.action}</span>
-                <span className="min-w-0 flex-1 text-fg-muted">{entry.detail}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
 
       {creating ? (
         <CreateModal

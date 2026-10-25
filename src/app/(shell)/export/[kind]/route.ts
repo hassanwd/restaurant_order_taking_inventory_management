@@ -41,7 +41,7 @@ export async function GET(request: Request, ctx: RouteContext<"/export/[kind]">)
     const from = query.get("from") ?? "";
     const to = query.get("to") ?? from;
     if (!DATE.test(from) || !DATE.test(to)) return new Response("Bad request", { status: 400 });
-    const report = await buildBillingRange(from, to);
+    const report = await buildBillingRange(from, to, user.role);
     label = `billing_${from}_${to}`;
     rows = billingRows(report.bills);
   } else {
@@ -50,7 +50,7 @@ export async function GET(request: Request, ctx: RouteContext<"/export/[kind]">)
     if (!isPeriod(periodParam) || (dateParam && !DATE.test(dateParam))) {
       return new Response("Bad request", { status: 400 });
     }
-    const report = await buildReport(periodParam, dateParam);
+    const report = await buildReport(periodParam, dateParam, user.role);
     label = `${kind}_${periodParam}_${report.range.date}`;
 
     if (kind === "billing") {
@@ -71,21 +71,6 @@ export async function GET(request: Request, ctx: RouteContext<"/export/[kind]">)
           order.returned?.at,
           order.returned?.reason,
           order.returned?.amount,
-        ]),
-      ];
-    } else if (kind === "inventory") {
-      rows = [
-        ["Item", "Unit", "Opening", "Received", "Out", "Used", "Closing", "Reorder level", "Low stock"],
-        ...report.inventory.map((row) => [
-          row.name,
-          row.unit,
-          row.opening,
-          row.received,
-          row.out,
-          row.used,
-          row.closing,
-          row.reorderLevel,
-          row.low ? "yes" : "no",
         ]),
       ];
     } else {

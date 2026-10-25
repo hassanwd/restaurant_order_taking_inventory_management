@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
 import { currency, round2 } from "@/lib/format";
-import type { MenuItem, SelectedOption } from "@/lib/types";
+import type { MenuItem, OptionGroup, SelectedOption } from "@/lib/types";
 import { useAppDispatch } from "@/store/hooks";
 import { addLine } from "@/store/slices/cartSlice";
 import { closeItemConfigurator, showToast } from "@/store/slices/uiSlice";
@@ -64,9 +64,14 @@ export default function ItemConfigurator({ item }: { item: MenuItem }) {
   }, [item, singles, multis]);
 
   const unitPrice = round2(item.price + selected.reduce((sum, option) => sum + option.price, 0));
-  const missing = item.optionGroups.filter(
-    (group) => group.required && group.type === "single" && !singles[group.id],
-  );
+  // Mirrors the server's own check in buildLines. A required group — single or multi — needs a
+  // pick; a required group with a "pick up to N" limit needs exactly N, not just one (since it can
+  // never exceed N either, "at least N" and "exactly N" are the same thing here).
+  const missing = item.optionGroups.filter((group) => {
+    if (!group.required) return false;
+    if (group.type === "single") return !singles[group.id];
+    return (multis[group.id]?.length ?? 0) < (group.maxSelect ?? 1);
+  });
 
   const close = () => dispatch(closeItemConfigurator());
 
@@ -77,15 +82,15 @@ export default function ItemConfigurator({ item }: { item: MenuItem }) {
     close();
   };
 
-  const toggleMulti = (groupId: string, choiceId: string) => {
+  const toggleMulti = (group: OptionGroup, choiceId: string) => {
     setMultis((current) => {
-      const existing = current[groupId] ?? [];
-      return {
-        ...current,
-        [groupId]: existing.includes(choiceId)
-          ? existing.filter((entry) => entry !== choiceId)
-          : [...existing, choiceId],
-      };
+      const existing = current[group.id] ?? [];
+      if (existing.includes(choiceId)) {
+        return { ...current, [group.id]: existing.filter((entry) => entry !== choiceId) };
+      }
+      // Already at the cap — selecting another choice does nothing until one is unchecked.
+      if (group.maxSelect && existing.length >= group.maxSelect) return current;
+      return { ...current, [group.id]: [...existing, choiceId] };
     });
   };
 
@@ -111,59 +116,78 @@ export default function ItemConfigurator({ item }: { item: MenuItem }) {
       }
     >
       <div className="space-y-5">
-        {item.optionGroups.map((group) => (
-          <fieldset key={group.id}>
-            <legend className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-fg-muted">
-              {group.name}
-              {group.required ? (
-                <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] text-accent">
-                  Required
-                </span>
-              ) : (
-                <span className="text-[10px] font-medium normal-case text-fg-subtle">optional</span>
-              )}
-            </legend>
+        {item.ingredients ? (
+          <div>
+            <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-fg-muted">Ingredients</p>
+            <p className="text-sm text-fg-muted">{item.ingredients}</p>
+          </div>
+        ) : null}
 
-            <div className="grid gap-2 sm:grid-cols-2">
-              {group.choices.map((choice) => {
-                const checked =
-                  group.type === "single"
-                    ? singles[group.id] === choice.id
-                    : (multis[group.id] ?? []).includes(choice.id);
+        {item.optionGroups.map((group) => {
+          const picked = multis[group.id] ?? [];
+          const atLimit = group.type === "multi" && !!group.maxSelect && picked.length >= group.maxSelect;
 
-                return (
-                  <label
-                    key={choice.id}
-                    className={cn(
-                      "flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 text-sm transition-colors",
-                      checked
-                        ? "border-accent bg-accent-soft text-fg"
-                        : "border-line bg-surface-2 text-fg-muted hover:border-accent/60",
-                    )}
-                  >
-                    <input
-                      type={group.type === "single" ? "radio" : "checkbox"}
-                      name={group.id}
-                      checked={checked}
-                      onChange={() =>
-                        group.type === "single"
-                          ? setSingles((current) => ({ ...current, [group.id]: choice.id }))
-                          : toggleMulti(group.id, choice.id)
-                      }
-                      className="size-4 accent-accent"
-                    />
-                    <span className="flex-1 font-semibold text-fg">{choice.name}</span>
-                    {choice.price > 0 ? (
-                      <span className="text-xs font-bold tabular-nums text-accent">
-                        +{currency(choice.price)}
-                      </span>
-                    ) : null}
-                  </label>
-                );
-              })}
-            </div>
-          </fieldset>
-        ))}
+          return (
+            <fieldset key={group.id}>
+              <legend className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-fg-muted">
+                {group.name}
+                {group.required ? (
+                  <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] text-accent">
+                    Required
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-medium normal-case text-fg-subtle">optional</span>
+                )}
+                {group.type === "multi" && group.maxSelect ? (
+                  <span className="text-[10px] font-medium normal-case text-fg-subtle">
+                    · pick {group.required ? "" : "up to "}
+                    {group.maxSelect}
+                  </span>
+                ) : null}
+              </legend>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                {group.choices.map((choice) => {
+                  const checked = group.type === "single" ? singles[group.id] === choice.id : picked.includes(choice.id);
+                  const disabled = group.type === "multi" && !checked && atLimit;
+
+                  return (
+                    <label
+                      key={choice.id}
+                      className={cn(
+                        "flex items-center gap-3 rounded-xl border px-3 py-2.5 text-sm transition-colors",
+                        disabled
+                          ? "cursor-not-allowed border-line bg-surface-2 text-fg-subtle opacity-50"
+                          : "cursor-pointer",
+                        !disabled && checked && "border-accent bg-accent-soft text-fg",
+                        !disabled && !checked && "border-line bg-surface-2 text-fg-muted hover:border-accent/60",
+                      )}
+                    >
+                      <input
+                        type={group.type === "single" ? "radio" : "checkbox"}
+                        name={group.id}
+                        checked={checked}
+                        disabled={disabled}
+                        onChange={() =>
+                          group.type === "single"
+                            ? setSingles((current) => ({ ...current, [group.id]: choice.id }))
+                            : toggleMulti(group, choice.id)
+                        }
+                        className="size-4 accent-accent"
+                      />
+                      <span className="flex-1 font-semibold text-fg">{choice.name}</span>
+                      {choice.price > 0 ? (
+                        <span className="text-xs font-bold tabular-nums text-accent">
+                          +{currency(choice.price)}
+                        </span>
+                      ) : null}
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
+          );
+        })}
 
         <div>
           <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-fg-muted">
