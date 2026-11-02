@@ -1,8 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { ArrowLeft, CircleCheck, Printer } from "lucide-react";
+import { ArrowLeft, CircleCheck, Plus, Printer } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/primitives";
 import { currency } from "@/lib/format";
@@ -22,17 +20,8 @@ export default function PrintScreen({
   tables: DiningTable[];
   justPlaced: boolean;
 }) {
-  const router = useRouter();
-
-  // Straight from checkout: once the print dialog closes (printed or cancelled), head to the
-  // next order rather than leaving the cashier stranded on the receipt.
-  useEffect(() => {
-    if (!justPlaced) return;
-    const onAfterPrint = () => router.push("/order/new");
-    window.addEventListener("afterprint", onAfterPrint);
-    return () => window.removeEventListener("afterprint", onAfterPrint);
-  }, [justPlaced, router]);
-
+  // No auto-redirect on `afterprint`: browsers fire it when the dialog is dismissed or the
+  // job never reaches the printer, which sent the cashier away with nothing printed.
   if (!order) {
     return (
       <div className="mx-auto max-w-xl p-6">
@@ -58,6 +47,10 @@ export default function PrintScreen({
           </ButtonLink>
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
+            <ButtonLink href="/order/new" variant="secondary">
+              <Plus className="size-4" aria-hidden />
+              New order
+            </ButtonLink>
             <Button onClick={() => window.print()}>
               <Printer className="size-4" aria-hidden />
               Print
@@ -85,7 +78,7 @@ export default function PrintScreen({
           </div>
         ) : null}
 
-        <div className="flex flex-wrap items-start justify-center gap-6 sm:flex-nowrap">
+        <div className="flex flex-wrap items-start justify-center gap-6 sm:flex-nowrap print:block">
           <div className="print-break">
             <p className="no-print mb-2 text-center text-[11px] font-bold uppercase tracking-wide text-fg-muted">
               Customer bill

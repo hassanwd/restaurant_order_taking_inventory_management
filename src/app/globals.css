@@ -229,8 +229,9 @@ body {
    Print — 80mm thermal receipt / kitchen ticket
 --------------------------------------------------------------------------- */
 @media print {
+  /* No fixed `size`: "80mm auto" is invalid in Chromium and some drivers drop the job; the
+     selected printer's paper size is used instead. */
   @page {
-    size: 80mm auto;
     margin: 4mm;
   }
 
