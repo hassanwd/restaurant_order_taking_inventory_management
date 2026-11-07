@@ -20,7 +20,6 @@ import {
   deleteMenuItemAction,
   setDealActiveAction,
   updateDealAction,
-  updateDealImageAction,
   updateMenuItemAction,
 } from "@/server/actions/admin";
 import { uploadImageAction, type UploadPurpose } from "@/server/actions/uploads";
@@ -58,7 +57,7 @@ function Toggle({ on, onChange, label, disabled }: { on: boolean; onChange: (nex
 /**
  * A photo picker that uploads immediately on choosing a file — no URL to type anywhere. Click (or
  * tap) the thumbnail to choose a photo; an × badge clears it. Used both as a bigger "add a photo"
- * control in the create forms and as a small inline-edit thumbnail in the item rows and deal cards.
+ * control in the item and deal forms (create and edit).
  */
 function ImageCell({
   src,
@@ -783,18 +782,6 @@ export default function MenuManager({
     else toast(result.error, "danger");
   };
 
-  const setItemImage = async (item: MenuItem, image: string) => {
-    const result = await call(() => updateMenuItemAction({ id: item.id, image }));
-    if (result.ok) refreshed(`${item.name} image ${image ? "updated" : "cleared"}`);
-    else toast(result.error, "danger");
-  };
-
-  const setDealImage = async (deal: Deal, image: string) => {
-    const result = await call(() => updateDealImageAction({ id: deal.id, image }));
-    if (result.ok) refreshed(`${deal.name} image ${image ? "updated" : "cleared"}`);
-    else toast(result.error, "danger");
-  };
-
   const setDealActive = async (deal: Deal, active: boolean) => {
     const result = await call(() => setDealActiveAction(deal.id, active));
     if (result.ok) refreshed(`${deal.name} ${active ? "is live" : "paused"}`);
@@ -869,14 +856,7 @@ export default function MenuManager({
                       <tr key={item.id} className="transition-colors hover:bg-surface-2">
                         <td className="px-5 py-3">
                           <div className="flex items-center gap-3">
-                            <ImageCell
-                              src={item.image}
-                              alt={item.name}
-                              size="size-9"
-                              purpose="item"
-                              disabled={pending}
-                              onChange={(image) => void setItemImage(item, image)}
-                            />
+                            <ItemImage src={item.image} alt={item.name} className="size-9 shrink-0 rounded-lg" />
                             <div className="min-w-0">
                               <p className="truncate font-bold text-fg">{item.name}</p>
                               <p className="truncate text-[11px] text-fg-muted">
@@ -948,15 +928,7 @@ export default function MenuManager({
             <Card key={deal.id} className={cn("p-5", !deal.active && "opacity-70")}>
               <div className="flex items-start justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-3">
-                  <ImageCell
-                    src={deal.image}
-                    alt={deal.name}
-                    size="size-11"
-                    purpose="deal"
-                    icon={Gift}
-                    disabled={pending}
-                    onChange={(image) => void setDealImage(deal, image)}
-                  />
+                  <ItemImage src={deal.image} alt={deal.name} icon={Gift} className="size-11 shrink-0 rounded-lg" />
                   <div className="min-w-0">
                     <p className="truncate text-base font-bold text-fg">{deal.name}</p>
                     <p className="mt-0.5 text-xs text-fg-muted">{deal.description || "Bundle"}</p>

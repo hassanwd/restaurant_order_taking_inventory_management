@@ -24,6 +24,7 @@ export default function PricingForm({ pricing }: { pricing: Pricing }) {
   const [service, setService] = useState(String(pricing.serviceChargeRate));
   const [appliesTo, setAppliesTo] = useState<OrderType[]>(pricing.serviceChargeAppliesTo);
   const [parcelFee, setParcelFee] = useState(String(pricing.parcelFee));
+  const [discount, setDiscount] = useState(String(pricing.discountPercent ?? 0));
   const [error, setError] = useState<string | null>(null);
 
   const save = async () => {
@@ -35,6 +36,7 @@ export default function PricingForm({ pricing }: { pricing: Pricing }) {
         serviceChargeRate: Number(service),
         serviceChargeAppliesTo: appliesTo,
         parcelFee: Number(parcelFee),
+        discountPercent: Number(discount),
       }),
     );
     if (!result.ok) return setError(result.error);
@@ -45,7 +47,7 @@ export default function PricingForm({ pricing }: { pricing: Pricing }) {
   return (
     <Card className="p-5">
       <SectionTitle
-        title="Tax / GST settings"
+        title="GST, service charge & discount"
         subtitle="GST is applied by how a bill is settled. Changes affect new bills only."
       />
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -60,6 +62,9 @@ export default function PricingForm({ pricing }: { pricing: Pricing }) {
         </Field>
         <Field label="Parcel fee">
           <Input type="number" min={0} max={1000} step="0.05" inputMode="decimal" value={parcelFee} onChange={(e) => setParcelFee(e.target.value)} />
+        </Field>
+        <Field label="Bill discount (%)" hint="Taken off every new bill; waiters see it but cannot change it.">
+          <Input type="number" min={0} max={100} step="0.1" inputMode="decimal" value={discount} onChange={(e) => setDiscount(e.target.value)} />
         </Field>
       </div>
 

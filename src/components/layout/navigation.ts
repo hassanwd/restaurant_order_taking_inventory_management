@@ -98,6 +98,15 @@ export const NAV_ITEMS: NavItem[] = [
     section: "manage",
     match: (pathname) => pathname.startsWith("/employees"),
   },
+  {
+    href: "/settings",
+    label: "Settings",
+    icon: NAV_ICONS.settings,
+    description: "GST, service charge & discount",
+    permission: "pricing.manage",
+    section: "manage",
+    match: (pathname) => pathname.startsWith("/settings"),
+  },
 ];
 
 export const navFor = (role: Role | undefined | null) =>

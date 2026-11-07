@@ -15,6 +15,7 @@ import {
   PAYMENT_LABEL,
   flowFor,
   STATUS_LABEL,
+  variationTotal,
 } from "@/lib/format";
 import { ORDER_TYPE_ICONS } from "@/lib/icons";
 import { can } from "@/lib/permissions";
@@ -281,11 +282,20 @@ export default function OrderDetail({
             <SectionTitle title="Bill" />
             <div className="mt-4 space-y-2">
               <KeyValue label="Subtotal" value={currency(order.totals.subtotal)} />
+              {variationTotal(order.lines) > 0 ? (
+                <KeyValue label="Includes variations" value={currency(variationTotal(order.lines))} />
+              ) : null}
               {order.totals.discount > 0 ? (
-                <KeyValue
-                  label={`Discount (${order.discountPercent}%)`}
-                  value={`− ${currency(order.totals.discount)}`}
-                />
+                <>
+                  <KeyValue
+                    label={`Discount (${order.discountPercent}%)`}
+                    value={`− ${currency(order.totals.discount)}`}
+                  />
+                  <KeyValue
+                    label="After discount"
+                    value={currency(order.totals.subtotal - order.totals.discount)}
+                  />
+                </>
               ) : null}
               {order.totals.serviceCharge > 0 ? (
                 <KeyValue

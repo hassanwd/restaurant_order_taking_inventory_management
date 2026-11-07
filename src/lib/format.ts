@@ -36,6 +36,16 @@ export function lineTotal(line: CartLine) {
   return round2(lineUnitPrice(line) * line.quantity);
 }
 
+/** The part of the lines' price that comes from chosen variations (options / add-ons) — already inside the subtotal. */
+export function variationTotal(lines: CartLine[]) {
+  return round2(
+    lines.reduce(
+      (sum, line) => sum + line.options.reduce((inner, option) => inner + option.price, 0) * line.quantity,
+      0,
+    ),
+  );
+}
+
 export const ORDER_TYPE_LABEL: Record<OrderType, string> = {
   "dine-in": "Dine In",
   takeaway: "Takeaway",

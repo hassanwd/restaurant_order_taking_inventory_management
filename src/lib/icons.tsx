@@ -23,6 +23,7 @@ import {
   Receipt,
   Salad,
   Sandwich,
+  Settings,
   ShoppingBag,
   Soup,
   Truck,
@@ -84,6 +85,7 @@ export const NAV_ICONS = {
   tables: Armchair,
   menu: UtensilsCrossed,
   billing: Receipt,
+  settings: Settings,
   reports: BarChart3,
   employees: Users,
 } satisfies Record<string, LucideIcon>;

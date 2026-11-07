@@ -331,24 +331,6 @@ export async function updateDealAction(input: z.input<typeof dealUpdateSchema>):
   });
 }
 
-const dealImageSchema = z.object({ id: z.string().max(60), image: imagePath("Photo") });
-
-export async function updateDealImageAction(
-  input: z.input<typeof dealImageSchema>,
-): Promise<ActionResult> {
-  return run(async () => {
-    const user = await authorize("deals.manage");
-    const data = parse(dealImageSchema, input);
-    await prisma.$transaction(async (tx) => {
-      const deal = await tx.deal.findUnique({ where: { id: data.id } });
-      if (!deal) throw new ActionError("Deal not found.");
-      await tx.deal.update({ where: { id: deal.id }, data: { image: data.image } });
-      await recordAudit(tx, user, "deal.image", `${deal.name} image ${data.image ? "updated" : "cleared"}`);
-    });
-    return { ok: true };
-  });
-}
-
 export async function setDealActiveAction(id: string, active: boolean): Promise<ActionResult> {
   return run(async () => {
     const user = await authorize("deals.manage");
@@ -384,6 +366,7 @@ const pricingSchema = z.object({
   serviceChargeRate: z.number().min(0).max(30, "Service charge must be 30% or less."),
   serviceChargeAppliesTo: z.array(z.enum(["dine-in", "takeaway", "parcel"])).max(3),
   parcelFee: money("Parcel fee", 1000),
+  discountPercent: z.number().min(0, "Discount cannot be negative.").max(100, "Discount must be 100% or less."),
 });
 
 export async function updatePricingAction(
@@ -398,6 +381,7 @@ export async function updatePricingAction(
       serviceChargeRate: round2(data.serviceChargeRate),
       serviceChargeAppliesTo: [...new Set(data.serviceChargeAppliesTo)],
       parcelFee: round2(data.parcelFee),
+      discountPercent: round2(data.discountPercent),
     };
     await prisma.$transaction(async (tx) => {
       await tx.settings.update({ where: { id: "singleton" }, data: { pricing: asJson(next) } });
@@ -405,7 +389,7 @@ export async function updatePricingAction(
         tx,
         user,
         "pricing.update",
-        `GST cash ${next.taxRateCash}% · card ${next.taxRateCard}% · service ${next.serviceChargeRate}% · parcel ${next.parcelFee}`,
+        `GST cash ${next.taxRateCash}% · card ${next.taxRateCard}% · service ${next.serviceChargeRate}% · discount ${next.discountPercent}% · parcel ${next.parcelFee}`,
       );
     });
     return { ok: true };

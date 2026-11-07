@@ -56,6 +56,7 @@ const ADMIN: Permission[] = [
   "menu.manage",
   "deals.manage",
   "billing.view",
+  // GST, service charge and the bill discount live in the Settings tab (Admin and Super Admin).
   "pricing.manage",
 ];
 

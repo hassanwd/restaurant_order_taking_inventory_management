@@ -17,7 +17,7 @@ export const selectCartTotals = createSelector([selectCart, selectPricing], (car
   computeTotals({
     lines: cart.lines,
     orderType: cart.orderType,
-    discountPercent: cart.discountPercent,
+    discountPercent: pricing.discountPercent ?? 0,
     pricing,
   }),
 );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -35,9 +36,11 @@ export default function Modal({
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
-  return (
+  // Portal to <body>: ancestors with backdrop-filter/transform (e.g. the sticky
+  // Topbar) would otherwise become the containing block for `fixed`.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
       <div
         className="absolute inset-0 bg-ink-900/55 backdrop-blur-[2px] animate-fade-in"
@@ -74,6 +77,7 @@ export default function Modal({
           <footer className="border-t border-line bg-surface-2 px-5 py-4">{footer}</footer>
         ) : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

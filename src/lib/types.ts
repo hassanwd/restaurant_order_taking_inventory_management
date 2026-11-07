@@ -181,6 +181,8 @@ export interface Pricing {
   serviceChargeRate: number;
   serviceChargeAppliesTo: OrderType[];
   parcelFee: number;
+  /** Discount (percent) taken off every new bill — set by the Super Admin. Absent on older saved settings (= 0). */
+  discountPercent?: number;
 }
 
 /** What the browser is allowed to know about the signed-in employee. */

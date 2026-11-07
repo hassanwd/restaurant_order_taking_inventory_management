@@ -7,13 +7,14 @@ import { Pencil, ShoppingBasket, StickyNote, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState, Input, ItemImage, KeyValue, Textarea } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
-import { currency, lineTotal, ORDER_TYPE_LABEL } from "@/lib/format";
+import { currency, lineTotal, ORDER_TYPE_LABEL, variationTotal } from "@/lib/format";
 import { can } from "@/lib/permissions";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   selectCartCount,
   selectCartIssues,
   selectCartTotals,
+  selectPricing,
   selectUser,
 } from "@/store/selectors";
 import {
@@ -21,7 +22,6 @@ import {
   decrementLine,
   incrementLine,
   removeLine,
-  setDiscountPercent,
   setLineNotes,
   setLinePrice,
   setOrderNotes,
@@ -176,8 +176,8 @@ export default function CartPanel({ className }: { className?: string }) {
   const totals = useAppSelector(selectCartTotals);
   const count = useAppSelector(selectCartCount);
   const issues = useAppSelector(selectCartIssues);
-  const user = useAppSelector(selectUser);
-  const canDiscount = can(user?.role, "discount.apply");
+  const discountPercent = useAppSelector(selectPricing).discountPercent ?? 0;
+  const variations = variationTotal(cart.lines);
 
   return (
     <div className={cn("flex h-full min-h-0 flex-col bg-surface", className)}>
@@ -232,22 +232,6 @@ export default function CartPanel({ className }: { className?: string }) {
                 placeholder="Anything the kitchen or server should know"
               />
             </label>
-
-            {canDiscount ? (
-            <label className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface-2 px-3 py-2.5">
-              <span className="text-[11px] font-bold uppercase tracking-wide text-fg-muted">
-                Discount %
-              </span>
-              <Input
-                type="number"
-                min={0}
-                max={100}
-                value={cart.discountPercent}
-                onChange={(event) => dispatch(setDiscountPercent(Number(event.target.value)))}
-                className="w-20 py-1.5 text-right"
-              />
-            </label>
-            ) : null}
           </div>
         ) : null}
       </div>
@@ -255,11 +239,15 @@ export default function CartPanel({ className }: { className?: string }) {
       <div className="border-t border-line bg-surface-2 p-4">
         <div className="space-y-2">
           <KeyValue label="Subtotal" value={currency(totals.subtotal)} />
+          {variations > 0 ? <KeyValue label="Includes variations" value={currency(variations)} /> : null}
           {totals.discount > 0 ? (
-            <KeyValue
-              label={`Discount (${cart.discountPercent}%)`}
-              value={`− ${currency(totals.discount)}`}
-            />
+            <>
+              <KeyValue
+                label={`Discount (${discountPercent}%)`}
+                value={`− ${currency(totals.discount)}`}
+              />
+              <KeyValue label="After discount" value={currency(totals.subtotal - totals.discount)} />
+            </>
           ) : null}
           {totals.serviceCharge > 0 ? (
             <KeyValue

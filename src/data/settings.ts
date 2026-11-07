@@ -22,5 +22,7 @@ export const DEFAULT_PRICING: Pricing = {
   /** Service charge only applies to dine-in orders. */
   serviceChargeAppliesTo: ["dine-in"],
   parcelFee: 3.5,
+  /** Store-wide discount on every bill; the Super Admin changes it. */
+  discountPercent: 0,
 };
 

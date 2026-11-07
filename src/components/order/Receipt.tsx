@@ -1,5 +1,5 @@
 import { OUTLET } from "@/data/settings";
-import { currency, formatDateTime, lineTotal, lineUnitPrice, ORDER_TYPE_LABEL, PAYMENT_LABEL } from "@/lib/format";
+import { currency, formatDateTime, lineTotal, lineUnitPrice, ORDER_TYPE_LABEL, PAYMENT_LABEL, variationTotal } from "@/lib/format";
 import type { DiningTable, Order } from "@/lib/types";
 
 const Divider = ({ solid }: { solid?: boolean }) => (
@@ -112,11 +112,17 @@ export default function Receipt({ order, table }: { order: Order; table?: Dining
 
       <div className="space-y-0.5">
         <Row label="Subtotal" value={currency(order.totals.subtotal)} />
+        {variationTotal(order.lines) > 0 ? (
+          <Row label="Includes variations" value={currency(variationTotal(order.lines))} />
+        ) : null}
         {order.totals.discount > 0 ? (
-          <Row
-            label={`Discount (${order.discountPercent}%)`}
-            value={`-${currency(order.totals.discount)}`}
-          />
+          <>
+            <Row
+              label={`Discount (${order.discountPercent}%)`}
+              value={`-${currency(order.totals.discount)}`}
+            />
+            <Row label="After discount" value={currency(order.totals.subtotal - order.totals.discount)} />
+          </>
         ) : null}
         {order.totals.serviceCharge > 0 ? (
           <Row

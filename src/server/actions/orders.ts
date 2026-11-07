@@ -5,7 +5,7 @@ import { Prisma } from "@prisma/client";
 import { TABLES } from "@/data/tables";
 import { nextStatus, round2 } from "@/lib/format";
 import { can } from "@/lib/permissions";
-import { computeTotals } from "@/lib/pricing";
+import { clampPercent, computeTotals } from "@/lib/pricing";
 import type { CartLine, Pricing, SelectedOption } from "@/lib/types";
 import { mapOrder, mapDeal, mapMenuItem, recordAudit, type Tx } from "../db";
 import { buildCatalog, isOpen, OPEN_STATUSES, orderVisibilityWhere } from "../data";
@@ -169,9 +169,6 @@ export async function placeOrderAction(
     const user = await authorize("order.create");
     const data = parse(placeSchema, input);
 
-    if (data.discountPercent > 0 && !can(user.role, "discount.apply")) {
-      throw new ActionError("You do not have permission to apply discounts.");
-    }
     if (data.settle && !can(user.role, "payment.settle")) {
       throw new ActionError("You do not have permission to take payment.");
     }
@@ -208,10 +205,12 @@ export async function placeOrderAction(
       const { lines, adjustments } = buildLines(catalog, data.lines, can(user.role, "price.adjust"));
       const pricing = settings.pricing as unknown as Pricing;
       const method = data.settle?.method ?? null;
+      // The discount is the Super Admin's store-wide setting — whatever the browser sent is ignored.
+      const discountPercent = clampPercent(pricing.discountPercent ?? 0);
       const totals = computeTotals({
         lines,
         orderType: data.type,
-        discountPercent: data.discountPercent,
+        discountPercent,
         pricing,
         method,
       });
@@ -236,7 +235,7 @@ export async function placeOrderAction(
           customer: asJson(data.customer),
           lines: asJson(lines),
           notes: data.notes,
-          discountPercent: data.discountPercent,
+          discountPercent,
           totals: asJson(totals),
           status: "pending",
           payment: payment ? asJson(payment) : Prisma.DbNull,
@@ -254,8 +253,8 @@ export async function placeOrderAction(
       if (adjustments.length > 0) {
         await recordAudit(tx, user, "price.adjust", `${code} · ${adjustments.join("; ")}`);
       }
-      if (data.discountPercent > 0) {
-        await recordAudit(tx, user, "discount.apply", `${code} · ${data.discountPercent}% off`);
+      if (discountPercent > 0) {
+        await recordAudit(tx, user, "discount.apply", `${code} · ${discountPercent}% off`);
       }
       return code;
     });

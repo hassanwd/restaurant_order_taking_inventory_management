@@ -1,11 +1,9 @@
 import Link from "next/link";
 import { Banknote, CreditCard, Download, Percent, Receipt, Undo2, Wallet } from "lucide-react";
-import PricingForm from "@/components/admin/PricingForm";
 import { DataTable, StatTile } from "@/components/admin/ui";
 import { buttonClass } from "@/components/ui/Button";
 import { Card, chipClass, EmptyState, SectionTitle } from "@/components/ui/primitives";
 import { currency, formatDateTime, ORDER_TYPE_LABEL, PAYMENT_LABEL } from "@/lib/format";
-import { getPricing } from "@/server/data";
 import { buildBillingRange } from "@/server/reports";
 import { requirePermission } from "@/server/session";
 
@@ -27,7 +25,7 @@ export default async function BillingPage({ searchParams }: PageProps<"/billing"
   const from = isDay(params.from) ? params.from : today;
   const to = isDay(params.to) && params.to >= from ? params.to : from;
 
-  const [report, pricing] = await Promise.all([buildBillingRange(from, to, user.role), getPricing()]);
+  const report = await buildBillingRange(from, to, user.role);
 
   const presets = [
     { label: "Today", from: today, to: today },
@@ -175,8 +173,6 @@ export default async function BillingPage({ searchParams }: PageProps<"/billing"
           </DataTable>
         )}
       </Card>
-
-      <PricingForm pricing={pricing} />
     </div>
   );
 }

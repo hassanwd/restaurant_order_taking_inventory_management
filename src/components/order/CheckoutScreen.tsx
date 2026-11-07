@@ -6,7 +6,7 @@ import { AlertTriangle, ArrowLeft, ShoppingBasket, StickyNote, Truck } from "luc
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Card, EmptyState, Field, Input, ItemImage, KeyValue, SectionTitle } from "@/components/ui/primitives";
 import SegmentedControl, { type SegmentOption } from "@/components/ui/SegmentedControl";
-import { currency, lineTotal, ORDER_TYPE_LABEL, PAYMENT_LABEL } from "@/lib/format";
+import { currency, lineTotal, ORDER_TYPE_LABEL, PAYMENT_LABEL, variationTotal } from "@/lib/format";
 import { ORDER_TYPE_ICONS, PAYMENT_ICONS } from "@/lib/icons";
 import { can } from "@/lib/permissions";
 import { computeTotals } from "@/lib/pricing";
@@ -41,7 +41,7 @@ export default function CheckoutScreen({ tables }: { tables: DiningTable[] }) {
 
   // What the screen shows is driven by role; the server enforces the same rules independently.
   const canSettle = can(user?.role, "payment.settle");
-  const canDiscount = can(user?.role, "discount.apply");
+  const discountPercent = pricing.discountPercent ?? 0;
 
   // Dine-in and takeaway are paid (cash or card) before the order is placed. A parcel is either
   // paid now by card or placed as COD and paid on delivery.
@@ -67,13 +67,14 @@ export default function CheckoutScreen({ tables }: { tables: DiningTable[] }) {
       computeTotals({
         lines: cart.lines,
         orderType: cart.orderType,
-        discountPercent: canDiscount ? cart.discountPercent : 0,
+        discountPercent,
         pricing,
         method: showPayment ? method : null,
       }),
-    [cart.lines, cart.orderType, cart.discountPercent, pricing, method, showPayment, canDiscount],
+    [cart.lines, cart.orderType, discountPercent, pricing, method, showPayment],
   );
 
+  const variations = variationTotal(cart.lines);
   const table = tables.find((entry) => entry.id === cart.tableId);
   const OrderTypeIcon = ORDER_TYPE_ICONS[cart.orderType];
   const busy = pending || submitted;
@@ -109,7 +110,8 @@ export default function CheckoutScreen({ tables }: { tables: DiningTable[] }) {
           address: cart.orderType === "parcel" ? cart.customer.address : "",
         },
         notes: cart.notes,
-        discountPercent: canDiscount ? cart.discountPercent : 0,
+        // The server applies the Super Admin's discount setting itself; this is only for the schema.
+        discountPercent,
         lines: cart.lines.map((line) => ({
           itemId: line.itemId,
           quantity: line.quantity,
@@ -302,11 +304,17 @@ export default function CheckoutScreen({ tables }: { tables: DiningTable[] }) {
           <Card className="p-5">
             <div className="space-y-2">
               <KeyValue label="Subtotal" value={currency(totals.subtotal)} />
+              {variations > 0 ? (
+                <KeyValue label="Includes variations" value={currency(variations)} />
+              ) : null}
               {totals.discount > 0 ? (
-                <KeyValue
-                  label={`Discount (${cart.discountPercent}%)`}
-                  value={`− ${currency(totals.discount)}`}
-                />
+                <>
+                  <KeyValue
+                    label={`Discount (${discountPercent}%)`}
+                    value={`− ${currency(totals.discount)}`}
+                  />
+                  <KeyValue label="After discount" value={currency(totals.subtotal - totals.discount)} />
+                </>
               ) : null}
               {totals.serviceCharge > 0 ? (
                 <KeyValue
