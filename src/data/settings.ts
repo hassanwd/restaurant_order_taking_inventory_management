@@ -2,9 +2,8 @@ import type { Pricing } from "@/lib/types";
 
 /** Static outlet configuration — printed on receipts and shown in the sidebar. */
 export const OUTLET = {
-  name: "Saffron & Smoke",
+  name: "KROV",
   tagline: "Kitchen · Grill · Coffee",
-  branch: "Downtown Branch",
   address: "142 Riverside Avenue, Downtown",
   phone: "+1 (555) 214-8890",
   taxId: "TX-9938-21",

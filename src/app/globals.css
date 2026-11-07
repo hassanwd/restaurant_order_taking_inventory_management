@@ -10,16 +10,16 @@
 --------------------------------------------------------------------------- */
 :root {
   /* Brand ramp — light orange */
-  --brand-50: #fff6ee;
-  --brand-100: #ffe9d5;
-  --brand-200: #ffd2aa;
-  --brand-300: #ffb375;
-  --brand-400: #ff9448;
-  --brand-500: #ff7a1a;
-  --brand-600: #ed6207;
-  --brand-700: #c44b06;
-  --brand-800: #9c3c0d;
-  --brand-900: #7e330e;
+  --brand-50: #fdf3ee;
+  --brand-100: #fae2d6;
+  --brand-200: #f4c3ab;
+  --brand-300: #ec9d7a;
+  --brand-400: #e07650;
+  --brand-500: #c4532f;
+  --brand-600: #ad4426;
+  --brand-700: #8f361e;
+  --brand-800: #702d1d;
+  --brand-900: #5a271b;
 
   /* Neutral ramp — warm dark */
   --ink-50: #faf7f5;
@@ -50,7 +50,7 @@
   --accent-fg: #ffffff;
 
   /* Sidebar's active nav item — a fixed brand mark, same in both themes. */
-  --sidebar-active: #e26311;
+  --sidebar-active: #b34425;
   --sidebar-active-fg: #ffffff;
 
   --success: #16a34a;
@@ -81,7 +81,7 @@
 
   --accent: var(--brand-400);
   --accent-hover: var(--brand-300);
-  --accent-soft: #33210f;
+  --accent-soft: #331913;
   --accent-fg: #1a1513;
 
   --success: #4ade80;

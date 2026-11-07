@@ -146,9 +146,14 @@ export async function getOrderById(user: SessionUser, id: string): Promise<Order
   return row ? mapOrder(row) : null;
 }
 
+/**
+ * Open orders this user can see. The status filter is ANDed with the visibility scope rather than
+ * spread over it: a Super Admin's scope is itself a status filter (finished orders only), and
+ * overwriting it would count open orders they can never see — and so show a phantom badge.
+ */
 export async function getOpenOrderCount(user: SessionUser) {
   return prisma.order.count({
-    where: { ...orderVisibilityWhere(user), status: { in: OPEN_STATUSES } },
+    where: { AND: [orderVisibilityWhere(user), { status: { in: OPEN_STATUSES } }] },
   });
 }
 
@@ -176,7 +181,7 @@ export async function getDashboardStats(user: SessionUser): Promise<DashboardSta
     prisma.order.findMany({
       where: { ...orderVisibilityWhere(user), createdAt: { gte: startOfDay, lt: endOfDay } },
     }),
-    prisma.order.count({ where: { ...orderVisibilityWhere(user), status: { in: OPEN_STATUSES } } }),
+    getOpenOrderCount(user),
     getTables(),
   ]);
   const orders = todayRows.map(mapOrder);

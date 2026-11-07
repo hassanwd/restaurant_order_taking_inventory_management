@@ -36,12 +36,16 @@ export default function Sidebar({ user, openOrders }: { user: SessionUser; openO
         className={cn(
           // Below the header (which carries the logo), so the logo is always visible. On desktop it sticks
           // under the header and scrolls on its own.
-          "fixed bottom-0 left-0 top-16 z-40 flex w-[260px] flex-col border-r border-line bg-surface transition-transform duration-200 lg:sticky lg:top-16 lg:h-[calc(100dvh-4rem)] lg:shrink-0 lg:translate-x-0",
+          "fixed bottom-0 left-0 top-16 z-40 w-65 overflow-hidden bg-surface transition-[transform,width,visibility] duration-300 ease-in-out motion-reduce:transition-none lg:sticky lg:top-16 lg:h-[calc(100dvh-4rem)] lg:shrink-0 lg:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full",
-          // Desktop: folded away entirely, so the page gets the full width.
-          collapsed && "lg:hidden",
+          // Desktop: the width eases to 0, so the page glides out to the full width instead of
+          // jumping. `invisible` flips once the fold ends (and at once on re-open), which also takes
+          // the hidden links out of the tab order.
+          collapsed && "lg:invisible lg:w-0",
         )}
       >
+        {/* Fixed width inside the shrinking shell, so nothing reflows or wraps mid-animation. */}
+        <div className="flex h-full w-65 flex-col border-r border-line">
         <nav className="scroll-slim flex-1 space-y-1 overflow-y-auto p-3">
           {items.map((item, index) => {
             const startsManagement =
@@ -120,6 +124,7 @@ export default function Sidebar({ user, openOrders }: { user: SessionUser; openO
               {ROLE_LABEL[user.role]} · {user.name}
             </p>
           </div>
+        </div>
         </div>
       </aside>
     </>

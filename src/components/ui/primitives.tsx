@@ -13,7 +13,7 @@ export function GreetingBanner({ name, openOrders }: { name: string; openOrders:
       <div className="flex flex-wrap items-end justify-between gap-6">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/75">
-            {OUTLET.branch} · {OUTLET.register} · {name}
+            {OUTLET.register} · {name}
           </p>
           <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
             Good service starts with a fast order.

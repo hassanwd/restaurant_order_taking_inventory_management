@@ -188,7 +188,7 @@ app looks like one product.
 Print styling is part of the same stylesheet: `@page` is set to an 80mm roll, `.no-print` hides
 the UI chrome and `.print-sheet` flattens the bill to black on white.
 
-The sidebar's active nav item uses its own fixed token, `--sidebar-active` (`#e26311`), separate
+The sidebar's active nav item uses its own fixed token, `--sidebar-active` (`#b34425`), separate
 from the general `--accent` used by buttons and chips — so it stays put even if the brand ramp
 changes.
 

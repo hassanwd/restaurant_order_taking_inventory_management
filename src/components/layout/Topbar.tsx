@@ -2,12 +2,12 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
-import { Menu, Moon, PanelLeftClose, PanelLeftOpen, Sun, UtensilsCrossed } from "lucide-react";
-import { OUTLET } from "@/data/settings";
+import { Menu, Moon, PanelLeftClose, PanelLeftOpen, Sun } from "lucide-react";
 import type { SessionUser } from "@/lib/types";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setSidebarCollapsed, toggleSidebar, toggleTheme } from "@/store/slices/uiSlice";
 import { pageTitle } from "./navigation";
+import Logo from "./Logo";
 import UserMenu from "./UserMenu";
 
 const COLLAPSED_KEY = "ots.sidebar.collapsed";
@@ -52,13 +52,7 @@ export default function Topbar({ user }: { user: SessionUser }) {
       <div className="flex h-16 items-center gap-3 px-4 sm:px-6">
         {/* The logo lives in the header, so it is always visible — also when the sidebar is closed. */}
         <div className="flex min-w-0 shrink items-center gap-3">
-          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-accent text-accent-fg shadow-card">
-            <UtensilsCrossed className="size-5" aria-hidden />
-          </span>
-          <div className="hidden min-w-0 sm:block">
-            <p className="truncate text-sm font-bold text-fg">{OUTLET.name}</p>
-            <p className="truncate text-[11px] text-fg-muted">{OUTLET.branch}</p>
-          </div>
+          <Logo className="h-10" />
         </div>
 
         {/* Phones and tablets: opens the sidebar as a drawer. */}

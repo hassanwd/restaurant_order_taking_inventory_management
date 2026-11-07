@@ -137,7 +137,7 @@ function ImageCell({
           }}
         />
       </div>
-      {error ? <p className="max-w-32 text-[10px] font-semibold leading-snug text-danger">{error}</p> : null}
+      {error ? <p className="max-w-56 text-[11px] font-semibold leading-snug text-danger">{error}</p> : null}
     </div>
   );
 }

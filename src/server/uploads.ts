@@ -2,6 +2,8 @@ import "server-only";
 
 import { put } from "@vercel/blob";
 import { createHash } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 /**
  * Content-addressed photo storage, backed by Vercel Blob (public access) rather than local disk.
@@ -17,8 +19,12 @@ const HASH_AND_EXT = "[a-f0-9]{64}\\.(?:png|jpe?g|gif|webp)";
  * our own content-hash naming is enough to prove a stored `image` value came from `saveUpload`,
  * not from a client pasting an arbitrary (or `javascript:`) URL into a form. */
 export const UPLOAD_URL_PATTERN = new RegExp(
-  `^https://[a-z0-9]+\\.public\\.blob\\.vercel-storage\\.com/uploads/${HASH_AND_EXT}$`,
+  `^(?:https://[a-z0-9]+\\.public\\.blob\\.vercel-storage\\.com)?/uploads/${HASH_AND_EXT}$`,
 );
+
+/** Where photos live on disk when no Blob token is configured (local development). */
+export const LOCAL_UPLOAD_DIR = path.join(process.cwd(), ".data", "uploads");
+export const LOCAL_UPLOAD_NAME = new RegExp(`^${HASH_AND_EXT}$`);
 
 export const CONTENT_TYPE_BY_EXT: Record<string, string> = {
   png: "image/png",
@@ -79,6 +85,15 @@ export async function saveUpload(buffer: Buffer): Promise<{ path: string; conten
 
   const hash = createHash("sha256").update(buffer).digest("hex");
   const filename = `${hash}.${signature.ext}`;
+
+  // No Blob token: fall back to local disk, served by src/app/uploads/[name]/route.ts. Only outside
+  // production — a deployed instance without a token is a misconfiguration and must say so, not
+  // quietly write to an ephemeral filesystem.
+  if (!process.env.BLOB_READ_WRITE_TOKEN && process.env.NODE_ENV !== "production") {
+    await mkdir(LOCAL_UPLOAD_DIR, { recursive: true });
+    await writeFile(path.join(LOCAL_UPLOAD_DIR, filename), buffer);
+    return { path: `/uploads/${filename}`, contentType: signature.contentType };
+  }
 
   const blob = await put(`uploads/${filename}`, buffer, {
     access: "public",
