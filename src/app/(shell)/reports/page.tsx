@@ -14,7 +14,7 @@ import { DataTable, StatTile } from "@/components/admin/ui";
 import { buttonClass } from "@/components/ui/Button";
 import { Card, chipClass, KeyValue, SectionTitle, StatusBadge } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
-import { currency, formatDateTime, ORDER_TYPE_LABEL, PAYMENT_LABEL } from "@/lib/format";
+import { currency, formatDateTime, localDay, ORDER_TYPE_LABEL, PAYMENT_LABEL } from "@/lib/format";
 import { buildReport, isPeriod, type Period, type Report } from "@/server/reports";
 import { requirePermission } from "@/server/session";
 
@@ -139,7 +139,7 @@ function OrdersTab({ report }: { report: Report }) {
               <tr key={order.id} className="hover:bg-surface-2">
                 <td className="px-5 py-3">
                   <Link href={`/orders/${order.id}`} className="font-bold text-fg hover:text-accent">{order.code}</Link>
-                  <p className="text-[11px] text-fg-subtle">{formatDateTime(order.createdAt)} UTC</p>
+                  <p className="text-[11px] text-fg-subtle">{formatDateTime(order.createdAt)}</p>
                 </td>
                 <td className="px-3 py-3 text-fg-muted">{ORDER_TYPE_LABEL[order.type]}</td>
                 <td className="max-w-40 truncate px-3 py-3 text-fg-muted">{order.customer.name || "Walk-in Guest"}</td>
@@ -177,7 +177,7 @@ function OrdersTab({ report }: { report: Report }) {
                   <Link href={`/orders/${order.id}`} className="font-bold text-fg hover:text-accent">{order.code}</Link>
                   <p className="text-[11px] text-fg-subtle">taken by {order.cashier}</p>
                 </td>
-                <td className="px-3 py-3 text-fg-muted">{formatDateTime(order.returned!.at)} UTC</td>
+                <td className="px-3 py-3 text-fg-muted">{formatDateTime(order.returned!.at)}</td>
                 <td className="px-3 py-3 text-fg-muted">{order.returned!.byName}</td>
                 <td className="max-w-60 truncate px-3 py-3 text-fg-muted">{order.returned!.reason}</td>
                 <td className="px-5 py-3 text-right font-bold tabular-nums text-fg">{currency(order.returned!.amount)}</td>
@@ -272,7 +272,7 @@ function BillingTab({ report }: { report: Report }) {
               <tr key={order.id} className="hover:bg-surface-2">
                 <td className="px-5 py-3">
                   <Link href={`/orders/${order.id}`} className="font-bold text-fg hover:text-accent">{order.code}</Link>
-                  <p className="text-[11px] text-fg-subtle">{formatDateTime(order.createdAt)} UTC</p>
+                  <p className="text-[11px] text-fg-subtle">{formatDateTime(order.createdAt)}</p>
                 </td>
                 <td className="px-3 py-3 text-fg-muted">{order.cashier}</td>
                 <td className="px-3 py-3 text-fg-muted">{order.payment ? PAYMENT_LABEL[order.payment.method] : <span className="text-warning">Unpaid</span>}</td>
@@ -299,7 +299,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
   const href = (next: { period?: Period; tab?: Tab; date?: string }) =>
     `/reports?period=${next.period ?? period}&tab=${next.tab ?? tab}&date=${next.date ?? range.date}`;
   const exportKind = tab === "overview" ? "billing" : tab;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDay(new Date());
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">

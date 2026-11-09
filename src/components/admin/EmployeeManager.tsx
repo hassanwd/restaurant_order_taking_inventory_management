@@ -260,7 +260,7 @@ export default function EmployeeManager({
                       </td>
                       <td className="px-3 py-3 text-right tabular-nums text-fg-muted">{employee.ordersPlaced}</td>
                       <td className="px-3 py-3 text-xs text-fg-muted">
-                        {employee.lastLoginAt ? `${formatDateTime(employee.lastLoginAt)} UTC` : "Never"}
+                        {employee.lastLoginAt ? `${formatDateTime(employee.lastLoginAt)}` : "Never"}
                         {employee.lastActiveAt ? <p className="text-[11px] text-success">Signed in now</p> : null}
                       </td>
                       <td className="px-5 py-3">

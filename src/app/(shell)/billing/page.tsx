@@ -3,14 +3,14 @@ import { Banknote, CreditCard, Download, Percent, Receipt, Undo2, Wallet } from 
 import { DataTable, StatTile } from "@/components/admin/ui";
 import { buttonClass } from "@/components/ui/Button";
 import { Card, chipClass, EmptyState, SectionTitle } from "@/components/ui/primitives";
-import { currency, formatDateTime, ORDER_TYPE_LABEL, PAYMENT_LABEL } from "@/lib/format";
+import { currency, formatDateTime, localDay, ORDER_TYPE_LABEL, PAYMENT_LABEL } from "@/lib/format";
 import { buildBillingRange } from "@/server/reports";
 import { requirePermission } from "@/server/session";
 
 export const metadata = { title: "Billing" };
 
 const DAY = 86_400_000;
-const day = (date: Date) => date.toISOString().slice(0, 10);
+const day = (date: Date) => localDay(date);
 const isDay = (value: unknown): value is string =>
   typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
 /** Bills shown on screen; the CSV export always carries the whole range. */
@@ -156,7 +156,7 @@ export default async function BillingPage({ searchParams }: PageProps<"/billing"
                   <Link href={`/orders/${order.id}`} className="font-bold text-fg hover:text-accent">
                     {order.code}
                   </Link>
-                  <p className="text-[11px] text-fg-subtle">{formatDateTime(order.createdAt)} UTC</p>
+                  <p className="text-[11px] text-fg-subtle">{formatDateTime(order.createdAt)}</p>
                 </td>
                 <td className="px-3 py-3 text-fg-muted">{ORDER_TYPE_LABEL[order.type]}</td>
                 <td className="px-3 py-3 text-fg-muted">{order.cashier}</td>

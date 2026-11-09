@@ -10,19 +10,28 @@ export function currency(value: number) {
 }
 
 /**
- * Fixed formatter/timezone so the string the server renders matches the one the
- * client hydrates with.
+ * Business timezone. Timestamps are stored as UTC instants and always shown in
+ * this zone, so every persona sees the same wall-clock time regardless of the
+ * server's or device's own timezone (and server/client hydration still match).
+ * Pakistan has no DST, so a fixed offset is exact.
  */
+export const TIME_ZONE = "Asia/Karachi";
+export const TZ_OFFSET_MS = 5 * 60 * 60 * 1000;
+
+/** `YYYY-MM-DD` of an instant on the business-timezone calendar. */
+export const localDay = (date: Date | string | number) =>
+  new Date(new Date(date).getTime() + TZ_OFFSET_MS).toISOString().slice(0, 10);
+
 const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
   dateStyle: "medium",
   timeStyle: "short",
-  timeZone: "UTC",
+  timeZone: TIME_ZONE,
 });
 
 const timeFormatter = new Intl.DateTimeFormat("en-US", {
   hour: "2-digit",
   minute: "2-digit",
-  timeZone: "UTC",
+  timeZone: TIME_ZONE,
 });
 
 export const formatDateTime = (iso: string) => dateTimeFormatter.format(new Date(iso));

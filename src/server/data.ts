@@ -5,7 +5,7 @@ import { OUTLET } from "@/data/settings";
 import { TABLES } from "@/data/tables";
 import { CATEGORIES } from "@/data/menu";
 import { can } from "@/lib/permissions";
-import { round2 } from "@/lib/format";
+import { localDay, round2, TZ_OFFSET_MS } from "@/lib/format";
 import type {
   Category,
   Deal,
@@ -174,7 +174,7 @@ export const isBillable = (order: Order) =>
   order.status !== "cancelled" && order.status !== "returned";
 
 export async function getDashboardStats(user: SessionUser): Promise<DashboardStats> {
-  const startOfDay = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+  const startOfDay = new Date(new Date(`${localDay(new Date())}T00:00:00.000Z`).getTime() - TZ_OFFSET_MS);
   const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
 
   const [todayRows, openOrders, tables] = await Promise.all([

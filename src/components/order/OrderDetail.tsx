@@ -124,7 +124,7 @@ export default function OrderDetail({
             <OrderTypeIcon className="size-3.5" aria-hidden />
             {ORDER_TYPE_LABEL[order.type]}
             {order.tableId ? ` · ${order.tableId}` : ""} ·{" "}
-            {formatDateTime(order.createdAt)} UTC · {order.cashier}
+            {formatDateTime(order.createdAt)} · {order.cashier}
           </p>
         </div>
 
@@ -220,7 +220,7 @@ export default function OrderDetail({
         {order.returned ? (
           <p className="mt-3 rounded-xl bg-warning-soft px-3 py-2 text-xs font-semibold text-warning">
             {order.status === "cancelled" ? "Refunded" : "Returned"} by {order.returned.byName} on{" "}
-            {formatDateTime(order.returned.at)} UTC ·{" "}
+            {formatDateTime(order.returned.at)} ·{" "}
             {order.returned.amount > 0
               ? `refund ${currency(order.returned.amount)}`
               : "no payment had been taken, nothing to refund"}{" "}
@@ -329,7 +329,7 @@ export default function OrderDetail({
                   <KeyValue label="Reference" value={order.payment.reference} />
                   <KeyValue label="Tendered" value={currency(order.payment.amountTendered)} />
                   <KeyValue label="Change" value={currency(order.payment.change)} />
-                  {order.paidAt ? <KeyValue label="Paid" value={`${formatDateTime(order.paidAt)} UTC`} /> : null}
+                  {order.paidAt ? <KeyValue label="Paid" value={`${formatDateTime(order.paidAt)}`} /> : null}
                 </>
               ) : (
                 <p className="rounded-xl bg-warning-soft px-3 py-2 text-xs font-semibold text-warning">

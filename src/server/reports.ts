@@ -1,6 +1,6 @@
 import "server-only";
 
-import { round2 } from "@/lib/format";
+import { localDay, round2, TZ_OFFSET_MS } from "@/lib/format";
 import { roleSeesOrder } from "@/lib/orders";
 import type { Order, PaymentMethod, Role } from "@/lib/types";
 import { mapOrder } from "./db";
@@ -45,7 +45,7 @@ export const isPeriod = (value: unknown): value is Period =>
 
 /** Resolves a period + anchor date into the exact window to report on. Weeks run Monday–Sunday. */
 export function resolveRange(period: Period, dateInput?: string): Range {
-  const anchor = parseDay(dateInput) ?? new Date(`${dayString(new Date())}T00:00:00Z`);
+  const anchor = parseDay(dateInput) ?? new Date(`${localDay(new Date())}T00:00:00Z`);
 
   let start: Date;
   let end: Date;
@@ -76,8 +76,8 @@ export function resolveRange(period: Period, dateInput?: string): Range {
 
   return {
     period,
-    from: start.toISOString(),
-    to: end.toISOString(),
+    from: new Date(start.getTime() - TZ_OFFSET_MS).toISOString(),
+    to: new Date(end.getTime() - TZ_OFFSET_MS).toISOString(),
     firstDay: dayString(start),
     lastDay: dayString(new Date(end.getTime() - DAY)),
     label,
@@ -136,17 +136,17 @@ function buildOrdersReport(all: Order[], range: Range): OrdersReport {
 
   const days = new Map<string, { day: string; placed: number; returned: number; sales: number }>();
   for (let cursor = Date.parse(range.from); cursor < Date.parse(range.to); cursor += DAY) {
-    const day = dayString(new Date(cursor));
+    const day = localDay(cursor);
     days.set(day, { day, placed: 0, returned: 0, sales: 0 });
   }
   for (const order of placedOrders) {
-    const bucket = days.get(order.createdAt.slice(0, 10));
+    const bucket = days.get(localDay(order.createdAt));
     if (!bucket) continue;
     bucket.placed += 1;
     if (isSale(order)) bucket.sales = round2(bucket.sales + order.totals.total);
   }
   for (const order of returnedOrders) {
-    const bucket = days.get(order.returned!.at.slice(0, 10));
+    const bucket = days.get(localDay(order.returned!.at));
     if (bucket) bucket.returned += 1;
   }
 
@@ -240,12 +240,12 @@ export async function buildReport(period: Period, date: string | undefined, role
 
 /** Sales records for the Billing screen — every bill in an arbitrary day range. */
 export async function buildBillingRange(from: string, to: string, role: Role): Promise<BillingReport> {
-  const start = parseDay(from) ?? new Date(`${dayString(new Date())}T00:00:00Z`);
+  const start = parseDay(from) ?? new Date(`${localDay(new Date())}T00:00:00Z`);
   const end = parseDay(to) ?? start;
   const range: Range = {
     period: "daily",
-    from: start.toISOString(),
-    to: new Date(end.getTime() + DAY).toISOString(),
+    from: new Date(start.getTime() - TZ_OFFSET_MS).toISOString(),
+    to: new Date(end.getTime() + DAY - TZ_OFFSET_MS).toISOString(),
     firstDay: dayString(start),
     lastDay: dayString(end),
     label: "",

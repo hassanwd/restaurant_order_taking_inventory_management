@@ -61,7 +61,7 @@ export default function Receipt({ order, table }: { order: Order; table?: Dining
         <Row label="Order" value={order.code} bold />
         <Row label="Type" value={ORDER_TYPE_LABEL[order.type].toUpperCase()} />
         {table ? <Row label="Table" value={table.name} /> : null}
-        <Row label="Date" value={`${formatDateTime(order.createdAt)} UTC`} />
+        <Row label="Date" value={`${formatDateTime(order.createdAt)}`} />
         <Row label="Taken by" value={`${order.cashier} · ${OUTLET.register}`} />
         <Row label="Guest" value={order.customer.name || "Walk-in Guest"} />
         {order.customer.phone ? <Row label="Phone" value={order.customer.phone} /> : null}

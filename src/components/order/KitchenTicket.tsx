@@ -27,7 +27,7 @@ export default function KitchenTicket({
         </span>
       </div>
       <p className="text-[10px]">
-        {formatDateTime(order.createdAt)} UTC · {order.cashier}
+        {formatDateTime(order.createdAt)} · {order.cashier}
       </p>
 
       <div className="my-2 border-t border-dashed border-ink-400" />
