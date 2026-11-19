@@ -205,7 +205,19 @@ const SEED_PASSWORDS = {
  * finds the row already there and returns.
  */
 export function ensureSeeded(): Promise<void> {
-  seeding ??= (async () => {
+  if (seeding) return seeding;
+  const attempt = seedOnce();
+  seeding = attempt;
+  // Never cache a failure: a transient DB error (cold start, dropped connection) would otherwise
+  // make every later request on this instance rethrow the same rejected promise until it recycles.
+  attempt.catch(() => {
+    if (seeding === attempt) seeding = null;
+  });
+  return attempt;
+}
+
+function seedOnce(): Promise<void> {
+  return (async () => {
     const already = await prisma.settings.findUnique({ where: { id: "singleton" } });
     if (already) return;
 
@@ -267,5 +279,4 @@ export function ensureSeeded(): Promise<void> {
     }
     console.log(`\n[ots] First start — seeded the database.\n${credentials}`);
   })();
-  return seeding;
 }
