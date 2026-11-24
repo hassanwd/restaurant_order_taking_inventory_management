@@ -3,9 +3,9 @@ import type { Pricing } from "@/lib/types";
 /** Static outlet configuration — printed on receipts and shown in the sidebar. */
 export const OUTLET = {
   name: "KROV",
-  tagline: "Kitchen · Grill · Coffee",
-  address: "142 Riverside Avenue, Downtown",
-  phone: "+1 (555) 214-8890",
+  tagline: "Kitchen",
+  address: "Fortune Plaza Shop No 2 - Food Street, Bahria Town Phase 7",
+  phone: "03054755547",
   taxId: "TX-9938-21",
   register: "POS-02",
 };
